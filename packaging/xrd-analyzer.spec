@@ -10,7 +10,7 @@ from PyInstaller.utils.hooks import collect_submodules
 
 ROOT = Path(SPECPATH).resolve().parent  # noqa: F821  (defined by PyInstaller)
 SRC = ROOT / "src"
-VERSION = re.search(r'__version__ = "([^"]+)"', (SRC / "xrd_analyzer" / "__init__.py").read_text()).group(1)
+VERSION = re.search(r'__version__ = "([^"]+)"', (SRC / "xrd_analyzer" / "__init__.py").read_text(encoding="utf-8")).group(1)
 ICONS = ROOT / "packaging" / "icons"
 ICON = str(ICONS / ("xrd-analyzer.icns" if sys.platform == "darwin" else "xrd-analyzer.ico"))
 
