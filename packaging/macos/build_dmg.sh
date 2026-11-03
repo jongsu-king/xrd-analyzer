@@ -15,5 +15,5 @@ OUT="dist/XRD-Analyzer-${VERSION}-macos-${ARCH}.dmg"
 rm -f "$OUT"
 hdiutil create -volname "XRD Analyzer ${VERSION}" -srcfolder "$STAGE" -ov -format UDZO "$OUT"
 rm -rf "$STAGE"
-shasum -a 256 "$OUT" > "$OUT.sha256"
+( cd "$(dirname "$OUT")" && shasum -a 256 "$(basename "$OUT")" > "$(basename "$OUT").sha256" )
 echo "$OUT"
