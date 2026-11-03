@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=XRD Analyzer
+Comment=Analyze 1D θ–2θ X-ray diffraction patterns
+Exec=/opt/xrd-analyzer/XRD-Analyzer %F
+Icon=xrd-analyzer
+Terminal=false
+Categories=Science;Education;Physics;Chemistry;
+MimeType=text/csv;text/plain;

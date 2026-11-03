@@ -1,0 +1,16 @@
+# Test matrix
+
+| Area | Test file | Cases |
+|---|---|---|
+| Bragg, Scherrer, W–H, Caglioti, cubic extinction | tests/unit/test_crystallography.py | known answers, θ/2θ confusion, refusal conditions, warnings |
+| Profiles, preprocessing, baselines, noise | tests/unit/test_profiles_preprocessing.py | FWHM/area, Kα2 strip, SG, SNIP/ALS/poly/masked, duplicates, crop, background |
+| Fitting, detection, edits, uncertainty | tests/unit/test_fit_peaks.py | exact fits, Poisson coverage, Voigt, overlap, doublet, identifiability, cancel |
+| Readers / validators | tests/unit/test_readers.py | headers, encodings (cp949), axis confirmation, malformed/empty/binary/NaN/out-of-range, vendor refusal, 200k-row file |
+| Recipe, reference, project | tests/unit/test_recipe_reference_project.py | JSON round-trip, validation, licensed CSV refs, hash mismatch, corrupted project |
+| Full pipeline known answers | tests/integration/test_known_answer_pipeline.py | 3 synthetic examples, Kα2 modes, masked baseline, batch + statistics, failures |
+| CLI and exports | tests/integration/test_cli_exports.py | all export formats, CSV/JSON round trip, Korean PDF glyphs, CLI exit codes, batch partial failure |
+| Regression | tests/regression/test_golden_examples.py | generator SHA-256 and result drift |
+| GUI (offscreen) | tests/gui/test_gui_smoke.py | threaded run, export, undo/redo, errors, import confirmation, batch, pause/cancel, KO/EN, theme, project |
+
+Commands: `pytest`, `pytest --cov=xrd_analyzer` (UI omitted from coverage),
+`ruff check src tests`, `mypy` (UI excluded), GUI tests need `QT_QPA_PLATFORM=offscreen`.

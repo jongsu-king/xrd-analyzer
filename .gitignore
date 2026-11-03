@@ -1,0 +1,24 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+out/
+*.tmp
+.DS_Store
+# never commit private measurements
+data/private/
+*.rasx
+*.ras
+*.xrdml
+*.brml
+
+# build outputs
+dist/
+build/

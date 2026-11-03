@@ -1,0 +1,129 @@
+# Builds the installers on each OS, verifies every frozen build with its built-in self-test
+# and GUI smoke test, test-installs the Windows installer and the .deb, then publishes a
+# GitHub Release (on tags v*).
+name: Release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, kind: macos }
+          - { os: windows-latest, kind: windows }
+          - { os: ubuntu-22.04, kind: linux }
+    runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Linux system libraries
+        if: matrix.kind == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libdbus-1-3 libxcb-cursor0 fonts-noto-cjk
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,build]"
+      - name: Tests
+        run: pytest -q -p no:cacheprovider
+
+      # ---------------------------------------------------------------- macOS
+      - name: Build app + DMG (macOS)
+        if: matrix.kind == 'macos'
+        run: packaging/macos/build_dmg.sh
+      - name: Verify frozen app and DMG (macOS)
+        if: matrix.kind == 'macos'
+        run: |
+          set -e
+          M="dist/XRD Analyzer.app/Contents/MacOS"
+          "$M/xrd-analyzer-cli" selftest --out dist/selftest-macos.json
+          "$M/XRD-Analyzer" gui-smoke --offscreen --out dist/gui-smoke-macos.json
+          MP=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$MP" dist/*.dmg
+          "$MP/XRD Analyzer.app/Contents/MacOS/xrd-analyzer-cli" selftest --out dist/selftest-macos-dmg.json
+          hdiutil detach "$MP"
+
+      # -------------------------------------------------------------- Windows
+      - name: Build app (Windows)
+        if: matrix.kind == 'windows'
+        run: pyinstaller --noconfirm --distpath dist --workpath build packaging/xrd-analyzer.spec
+      - name: Verify frozen app (Windows)
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: |
+          & dist\XRD-Analyzer\xrd-analyzer-cli.exe selftest --out dist\selftest-windows.json
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & dist\XRD-Analyzer\xrd-analyzer-cli.exe gui-smoke --offscreen --out dist\gui-smoke-windows.json
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Build installer + portable zip (Windows)
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $v = python -c "import xrd_analyzer; print(xrd_analyzer.__version__)"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$v" packaging\windows\xrd-analyzer.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Compress-Archive -Path dist\XRD-Analyzer -DestinationPath "dist\XRD-Analyzer-$v-windows-x64-portable.zip"
+      - name: Silent install, self-test, uninstall (Windows)
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist\XRD-Analyzer-*-windows-x64-setup.exe | Select-Object -First 1
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/DIR=C:\xrd-test' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
+          & C:\xrd-test\xrd-analyzer-cli.exe selftest --out dist\selftest-windows-installed.json
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $u = Start-Process -FilePath C:\xrd-test\unins000.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          if ($u.ExitCode -ne 0) { exit 1 }
+          Get-FileHash dist\*.exe, dist\*.zip -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Out-File -Encoding ascii dist\windows.sha256
+
+      # ---------------------------------------------------------------- Linux
+      - name: Build tar.gz + deb (Linux)
+        if: matrix.kind == 'linux'
+        run: packaging/linux/build_linux.sh
+      - name: Verify frozen app and installed deb (Linux)
+        if: matrix.kind == 'linux'
+        run: |
+          set -e
+          dist/XRD-Analyzer/xrd-analyzer-cli selftest --out dist/selftest-linux.json
+          dist/XRD-Analyzer/XRD-Analyzer gui-smoke --offscreen --out dist/gui-smoke-linux.json
+          sudo apt-get install -y ./dist/xrd-analyzer_*_amd64.deb
+          xrd-analyzer selftest --out dist/selftest-linux-deb.json
+          sudo apt-get remove -y xrd-analyzer
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xrd-analyzer-${{ matrix.kind }}
+          if-no-files-found: error
+          path: |
+            dist/*.dmg
+            dist/*-setup.exe
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.sha256
+            dist/*.json
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p verification && mv artifacts/*.json verification/
+          (cd verification && zip -q ../artifacts/build-verification-reports.zip *.json)
+          gh release create "$GITHUB_REF_NAME" artifacts/* --title "XRD Analyzer $GITHUB_REF_NAME" --notes-file docs/RELEASE_NOTES.md

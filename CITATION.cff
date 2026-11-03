@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "XRD Analyzer: an analyzer for 1D θ–2θ X-ray diffraction patterns"
+version: 0.1.0
+date-released: 2026-11-03
+license: MIT
+type: software
+repository-code: "https://github.com/jongsu-king/xrd-analyzer"
+authors:
+  - name: "xrd-analyzer contributors"
