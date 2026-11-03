@@ -1,5 +1,7 @@
 # XRD Analyzer
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23912324.svg)](https://doi.org/10.5281/zenodo.23912324)
+
 Desktop and command-line software for analysing **1D θ–2θ X-ray diffraction patterns**:
 background and amorphous-baseline separation, Kα2 handling, peak detection and profile
 fitting with uncertainties, Bragg d-spacings, guarded Scherrer and Williamson–Hall
@@ -365,5 +367,14 @@ python tools/generate_examples.py           # regenerate examples/synthetic
   [docs/adapters.md](docs/adapters.md).
 
 ## 13. License and citation
-MIT License — see [LICENSE](LICENSE). Citation metadata: [CITATION.cff](CITATION.cff).
-Independent open-source software, not affiliated with any instrument vendor or institution.
+MIT License — see [LICENSE](LICENSE). Independent open-source software, not affiliated with
+any instrument vendor or institution.
+
+**Cite this software** (archived on Zenodo):
+
+> jongsu-king (2026). *XRD Analyzer: desktop and command-line analysis of 1D θ–2θ X-ray
+> diffraction patterns* (v0.1.1). Zenodo. https://doi.org/10.5281/zenodo.23912325
+
+- DOI of **all versions** (always resolves to the latest): [10.5281/zenodo.23912324](https://doi.org/10.5281/zenodo.23912324)
+- DOI of **version 0.1.1**: [10.5281/zenodo.23912325](https://doi.org/10.5281/zenodo.23912325)
+- Machine-readable metadata: [CITATION.cff](CITATION.cff) (GitHub shows a *Cite this repository* button).

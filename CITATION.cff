@@ -5,6 +5,14 @@ version: 0.1.1
 date-released: 2026-11-03
 license: MIT
 type: software
+doi: 10.5281/zenodo.23912324
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.23912324
+    description: "Concept DOI (all versions)"
+  - type: doi
+    value: 10.5281/zenodo.23912325
+    description: "Version 0.1.1"
 repository-code: "https://github.com/jongsu-king/xrd-analyzer"
 keywords:
   - X-ray diffraction

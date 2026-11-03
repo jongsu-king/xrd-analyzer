@@ -1,5 +1,7 @@
 # XRD Analyzer (한국어 설명서)
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23912324.svg)](https://doi.org/10.5281/zenodo.23912324)
+
 **1D θ–2θ X선 회절(XRD) 패턴**을 분석하는 데스크톱·명령줄 프로그램입니다. 다음을 할 수 있습니다.
 - 배경과 비정질 기저선 분리, Kα2 처리
 - 불확도가 붙는 피크 검출·프로파일 피팅
@@ -381,5 +383,13 @@ python tools/generate_examples.py           # examples/synthetic 다시 생성
 - **기여:** [CONTRIBUTING.md](CONTRIBUTING.md). 벤더 형식 추가: [docs/adapters.md](docs/adapters.md).
 
 ## 13. 라이선스·인용
-MIT 라이선스입니다([LICENSE](LICENSE)). 인용 정보는 [CITATION.cff](CITATION.cff)에 있습니다.
-어떤 장비 제조사나 기관과도 관련 없는 독립 오픈소스 소프트웨어입니다.
+MIT 라이선스입니다([LICENSE](LICENSE)). 어떤 장비 제조사나 기관과도 관련 없는 독립 오픈소스 소프트웨어입니다.
+
+**인용 방법**(Zenodo에 보관됨):
+
+> jongsu-king (2026). *XRD Analyzer: desktop and command-line analysis of 1D θ–2θ X-ray
+> diffraction patterns* (v0.1.1). Zenodo. https://doi.org/10.5281/zenodo.23912325
+
+- **모든 버전**을 가리키는 DOI(항상 최신 버전으로 연결): [10.5281/zenodo.23912324](https://doi.org/10.5281/zenodo.23912324)
+- **0.1.1 버전**의 DOI: [10.5281/zenodo.23912325](https://doi.org/10.5281/zenodo.23912325)
+- 기계가 읽는 인용 정보: [CITATION.cff](CITATION.cff)(GitHub 저장소의 *Cite this repository* 버튼)
