@@ -65,9 +65,9 @@
 
 ### 다운로드 무결성 확인 (선택)
 ```bash
-shasum -a 256 XRD-Analyzer-0.1.0-macos-arm64.dmg     # macOS
-sha256sum xrd-analyzer_0.1.0_amd64.deb               # Linux
-certutil -hashfile XRD-Analyzer-0.1.0-windows-x64-setup.exe SHA256   # Windows
+shasum -a 256 XRD-Analyzer-0.1.1-macos-arm64.dmg     # macOS
+sha256sum xrd-analyzer_0.1.1_amd64.deb               # Linux
+certutil -hashfile XRD-Analyzer-0.1.1-windows-x64-setup.exe SHA256   # Windows
 ```
 출력값을 같은 이름의 `.sha256` 파일과 비교합니다.
 

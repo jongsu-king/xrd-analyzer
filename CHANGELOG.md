@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 — 2026-11-03
+- Archived on Zenodo with a DOI (metadata in `.zenodo.json` and `CITATION.cff`).
+- Windows build: the version file is read as UTF-8.
+- macOS DMG checksum file lists the bare file name, so `shasum -c` works after download.
+- No changes to the analysis.
+
 ## 0.1.0 — 2026-11-03
 First public release.
 

@@ -1,6 +1,6 @@
 """XRD Analyzer — independent open-source analyzer for 1D θ–2θ X-ray diffraction patterns."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 APP_NAME = "XRD Analyzer"
 

@@ -1,15 +1,16 @@
-## XRD Analyzer 0.1.0
+## XRD Analyzer 0.1.1
 
-This is the first public release of a desktop and command-line analyzer for 1D θ–2θ X-ray
-diffraction patterns.
+This is a desktop and command-line analyzer for 1D θ–2θ X-ray diffraction patterns.
+Version 0.1.1 is the first release archived on Zenodo with a DOI. The analysis is identical to
+0.1.0; this release fixes the Windows build and the macOS checksum file.
 
 ### Downloads
 | System | File |
 |---|---|
-| Windows 10/11 x64 | `XRD-Analyzer-0.1.0-windows-x64-setup.exe` (installer) or `…-portable.zip` |
-| macOS 12+ Apple Silicon | `XRD-Analyzer-0.1.0-macos-arm64.dmg` |
-| Ubuntu/Debian x86_64 | `xrd-analyzer_0.1.0_amd64.deb` |
-| Other Linux x86_64 | `XRD-Analyzer-0.1.0-linux-x86_64.tar.gz` |
+| Windows 10/11 x64 | `XRD-Analyzer-0.1.1-windows-x64-setup.exe` (installer) or `…-portable.zip` |
+| macOS 12+ Apple Silicon | `XRD-Analyzer-0.1.1-macos-arm64.dmg` |
+| Ubuntu/Debian x86_64 | `xrd-analyzer_0.1.1_amd64.deb` |
+| Other Linux x86_64 | `XRD-Analyzer-0.1.1-linux-x86_64.tar.gz` |
 
 The builds are **not code-signed**. See *First start on unsigned builds* in the README.
 Checksums are in the `.sha256` files. `build-verification-reports.zip` holds the self-test

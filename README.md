@@ -62,9 +62,9 @@ The builds are not code-signed, so the operating system warns on first start:
 
 ### Verify the download (optional)
 ```bash
-shasum -a 256 XRD-Analyzer-0.1.0-macos-arm64.dmg     # macOS
-sha256sum xrd-analyzer_0.1.0_amd64.deb               # Linux
-certutil -hashfile XRD-Analyzer-0.1.0-windows-x64-setup.exe SHA256   # Windows
+shasum -a 256 XRD-Analyzer-0.1.1-macos-arm64.dmg     # macOS
+sha256sum xrd-analyzer_0.1.1_amd64.deb               # Linux
+certutil -hashfile XRD-Analyzer-0.1.1-windows-x64-setup.exe SHA256   # Windows
 ```
 Compare the result with the matching `.sha256` file.
 

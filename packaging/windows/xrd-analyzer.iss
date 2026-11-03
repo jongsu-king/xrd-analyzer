@@ -1,8 +1,8 @@
 ; Inno Setup script for XRD Analyzer (per-user install by default, no admin rights needed).
-; Build: ISCC.exe /DAppVersion=0.1.0 packaging\windows\xrd-analyzer.iss
+; Build: ISCC.exe /DAppVersion=0.1.1 packaging\windows\xrd-analyzer.iss
 ; Expects the PyInstaller output in dist\XRD-Analyzer\ (relative to the repository root).
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.1.1"
 #endif
 #define AppName "XRD Analyzer"
 #define SrcDir "..\..\dist\XRD-Analyzer"

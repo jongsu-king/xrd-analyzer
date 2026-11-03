@@ -1,0 +1,24 @@
+{
+  "title": "XRD Analyzer: desktop and command-line analysis of 1D θ–2θ X-ray diffraction patterns",
+  "upload_type": "software",
+  "description": "<p>XRD Analyzer is an open-source desktop (PySide6) and command-line program for 1D θ–2θ X-ray diffraction patterns. It provides text import with explicit confirmation of the axis quantity and units; duplicate handling, measured-background subtraction with variance propagation, Kα2 stripping or Kα1/Kα2 doublet fitting; SNIP, asymmetric-least-squares, polynomial and peak-masked Whittaker baselines for separating amorphous contributions; peak detection and pseudo-Voigt/Voigt fitting with covariance-based uncertainties and convergence/identifiability flags; Bragg d-spacings; Scherrer and Williamson–Hall crystallite-size and microstrain analysis that is computed only when its inputs (shape factor, instrumental broadening, sufficient peaks) are valid; position-only phase-candidate comparison; and CSV, JSON, PNG, SVG, HTML and PDF reports with full provenance. Installers for Windows, macOS and Linux include a built-in self-test against synthetic ground-truth patterns.</p>",
+  "creators": [
+    {"name": "jongsu-king"}
+  ],
+  "license": "MIT",
+  "keywords": [
+    "X-ray diffraction",
+    "XRD",
+    "crystallography",
+    "peak fitting",
+    "pseudo-Voigt",
+    "Scherrer equation",
+    "Williamson-Hall",
+    "crystallite size",
+    "materials science",
+    "PySide6"
+  ],
+  "related_identifiers": [
+    {"identifier": "https://github.com/jongsu-king/xrd-analyzer", "relation": "isSupplementTo", "scheme": "url"}
+  ]
+}
