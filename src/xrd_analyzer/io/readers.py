@@ -8,8 +8,11 @@ Policy (see README "Format support"):
 * The axis quantity (2θ vs θ) and unit (deg vs rad) are never guessed. They must be
   declared unambiguously in the column header (e.g. ``2theta_deg``, ``2θ (°)``) or confirmed
   through :class:`ReadOptions`; otherwise :class:`AxisConfirmationRequired` is raised.
-* Vendor formats (.xrdml, .ras, .rasx, .raw, .brml, .udf) are recognised but raise
-  :class:`UnsupportedFormatError` until a parser is validated against real files.
+* Values labelled as raw counts must be whole numbers: fractional values cannot follow the
+  Poisson statistics the analysis would assume, so they are refused rather than weighted wrongly.
+* Vendor formats (.xrdml, .ras, .rasx, .raw, .udf) are recognised but raise
+  :class:`UnsupportedFormatError` until a parser is validated against real files. Bruker
+  ``.brml`` has its own reader in :mod:`xrd_analyzer.io.bruker`.
 """
 
 from __future__ import annotations
@@ -22,12 +25,24 @@ from typing import Any
 
 import numpy as np
 
-from ..models.dataset import SYNTHETIC_ONLY, UNSUPPORTED, XRDPattern, sha256_file
+from ..models.dataset import (
+    COUNT_UNITS,
+    SYNTHETIC_ONLY,
+    UNSUPPORTED,
+    VERIFIED_NATIVE,
+    XRDPattern,
+    sha256_file,
+)
 from . import validators
 
 MAX_FILE_BYTES = 512 * 1024 * 1024
-_COMMENT_PREFIXES = ("#", ";", "!", "//", "%")
+_COMMENT_PREFIXES = ("#", ";", "!", "//", "%", "'")
 _DECIMAL_COMMA = re.compile(r"^[+-]?\d+,\d+([eE][+-]?\d+)?$")
+_QUOTED_PAIR = re.compile(r'(\w+):\s*"([^"]*)"')
+# Keys of the single header line in Bruker text exports, e.g. 'Id: "x" Anode: "Cu" ...
+_BRUKER_XY_KEYS = frozenset({"Id", "Anode", "Wavelength", "Scantype", "TimePerStep"})
+# Bruker exports round intensities to three decimals.
+_BRUKER_XY_ROUNDING = 5.01e-4
 
 
 class XRDFormatError(ValueError):
@@ -88,6 +103,10 @@ class ProbeResult:
     metadata: dict[str, str] = field(default_factory=dict)
     preview: list[list[float]] = field(default_factory=list)
     issues: list[str] = field(default_factory=list)
+    # False when the intensity column holds fractional values, which rules out raw counts.
+    integer_intensity: bool = True
+    # A unit the file's own contents point to. It is offered, never applied without confirmation.
+    suggested_intensity_unit: str | None = None
 
     @property
     def axis_confirmed(self) -> bool:
@@ -209,7 +228,7 @@ def _to_float(tok: str) -> float | None:
 
 
 def _parse_meta_line(s: str, delim: str | None = None) -> tuple[str, str] | None:
-    body = s.lstrip("#;!/% ").strip()
+    body = s.lstrip("#;!/%' ").strip()
     for sep in (":", "="):
         if sep in body:
             k, v = body.split(sep, 1)
@@ -220,6 +239,32 @@ def _parse_meta_line(s: str, delim: str | None = None) -> tuple[str, str] | None
         if k.strip():
             return k.strip(), v.strip()
     return None
+
+
+def _parse_comment(s: str) -> list[tuple[str, str]]:
+    """Metadata in a comment line: several ``key: "value"`` pairs, or one key and value."""
+    pairs = _QUOTED_PAIR.findall(s)
+    if len(pairs) >= 2:
+        return pairs
+    kv = _parse_meta_line(s)
+    return [kv] if kv else []
+
+
+def _is_bruker_xy(metadata: dict[str, str]) -> bool:
+    return _BRUKER_XY_KEYS <= metadata.keys()
+
+
+def _suggest_rate_unit(y: np.ndarray, metadata: dict[str, str]) -> str | None:
+    """Suggest cps when y·t recovers whole counts, given the counting time in a Bruker header."""
+    if not _is_bruker_xy(metadata):
+        return None
+    t = _to_float(metadata["TimePerStep"])
+    if t is None or not 0 < t * _BRUKER_XY_ROUNDING < 0.25:
+        return None  # the rounding would hide any difference from whole numbers
+    if validators.non_integer_count(y) == 0:
+        return None
+    counts = y * t
+    return "cps" if np.all(np.abs(counts - np.round(counts)) <= t * _BRUKER_XY_ROUNDING) else None
 
 
 def _read_text(path: Path, encoding: str | None) -> tuple[str, str]:
@@ -264,9 +309,9 @@ def _scan(text: str, name: str, delimiter: str | None) -> _Scan:
         if not s:
             continue
         if _is_comment(s):
-            kv = _parse_meta_line(s)
-            if kv and not rows:
-                metadata.setdefault(kv[0], kv[1])
+            if not rows:
+                for k, v in _parse_comment(s):
+                    metadata.setdefault(k, v)
             continue
         if not rows and not delim_fixed:
             delim = _detect_delimiter(s)
@@ -429,6 +474,10 @@ class TextPatternReader:
             res.axis_unit = opts.axis_unit
         if opts.intensity_unit:
             res.intensity_unit = opts.intensity_unit
+        if res.y_column is not None and 0 <= res.y_column < res.n_columns:
+            y = scan.rows[:, res.y_column]
+            res.integer_intensity = validators.non_integer_count(y) == 0
+            res.suggested_intensity_unit = _suggest_rate_unit(y, scan.metadata)
         if not scan.header:
             res.issues.append("no column header: axis quantity/unit must be confirmed")
         if res.axis_quantity == "theta" and opts.axis_quantity != "theta":
@@ -494,6 +543,15 @@ class TextPatternReader:
         if iunit is None:
             iunit = "a.u."
             flags.append("intensity_unit_unconfirmed")
+        elif iunit.strip().lower() in COUNT_UNITS and (
+            bad_counts := validators.non_integer_count(y)
+        ):
+            raise AxisConfirmationRequired(
+                f"{p.name}: {bad_counts} of {y.size} intensity values are not whole numbers, so "
+                "they cannot be raw detector counts and Poisson weights would be wrong. Choose "
+                "the intensity unit cps or a.u.",
+                probe,
+            )
         md = dict(probe.metadata)
         md.update(
             {
@@ -503,6 +561,10 @@ class TextPatternReader:
                 "y_column": probe.header[yc] if probe.header else str(yc),
             }
         )
+        bruker_xy = _is_bruker_xy(scan.metadata)
+        if bruker_xy:
+            md["file_wavelength_A"] = scan.metadata["Wavelength"]
+            md["time_per_step_s"] = scan.metadata["TimePerStep"]
         synthetic = any("synthetic" in f"{k} {v}".lower() for k, v in scan.metadata.items())
         return XRDPattern(
             name=p.stem,
@@ -513,7 +575,7 @@ class TextPatternReader:
             source_path=str(p.resolve()),
             sha256=sha256_file(str(p)),
             parser=self.name,
-            format_status=self.status,
+            format_status=VERIFIED_NATIVE if bruker_xy else self.status,
             synthetic=synthetic,
             quality_flags=tuple(flags),
         )
@@ -565,6 +627,5 @@ VENDOR_STUBS = (
     VendorFormatStub((".ras",), "rigaku-ras", "Rigaku RAS (.ras)"),
     VendorFormatStub((".rasx",), "rigaku-rasx", "Rigaku RASX (.rasx)"),
     VendorFormatStub((".raw",), "raw", "Bruker/other RAW (.raw, version-dependent binary)"),
-    VendorFormatStub((".brml",), "bruker-brml", "Bruker BRML (.brml)"),
     VendorFormatStub((".udf",), "philips-udf", "Philips UDF (.udf)"),
 )

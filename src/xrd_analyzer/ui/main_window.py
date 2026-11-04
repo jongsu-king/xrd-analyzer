@@ -41,7 +41,7 @@ from ..core.analysis import AnalysisResult, batch_peak_statistics, run_analysis,
 from ..core.reference import ReferencePattern, load_reference_csv, reference_from_cubic
 from ..core.synthetic import EXAMPLES, make_example
 from ..io import AxisConfirmationRequired, ReadOptions, XRDFormatError, probe_file, read_pattern
-from ..models.dataset import XRDPattern
+from ..models.dataset import FORMAT_STATUS_TEXT, XRDPattern
 from ..models.recipe import AnalysisRecipe
 from ..project import (
     Project,
@@ -61,7 +61,7 @@ from .plots import PlotPanel
 from .theme import apply_theme
 from .workers import Worker, make_worker
 
-DATA_FILTER = "XRD data (*.csv *.txt *.xy *.dat *.tsv);;All files (*)"
+DATA_FILTER = "XRD data (*.csv *.txt *.xy *.dat *.tsv *.brml);;All files (*)"
 
 
 @dataclass
@@ -351,7 +351,8 @@ class MainWindow(QMainWindow):
         li.setCheckState(Qt.CheckState.Checked)
         li.setToolTip(
             f"{item.pattern.source_path or 'in memory'}\nSHA-256 {item.pattern.sha256}"
-            f"\n{item.pattern.parser} [{item.pattern.format_status}]"
+            f"\n{item.pattern.parser} [{item.pattern.format_status}: "
+            f"{FORMAT_STATUS_TEXT.get(item.pattern.format_status, 'unknown status')}]"
             f"\nflags: {', '.join(item.pattern.quality_flags) or 'none'}"
         )
         self.data_list.addItem(li)
@@ -400,6 +401,11 @@ class MainWindow(QMainWindow):
         )
         if pat.quality_flags:
             self.log(f"  quality flags: {', '.join(pat.quality_flags)}")
+        if "file_wavelength_A" in pat.metadata:
+            self.log(
+                f"  file records wavelength {pat.metadata['file_wavelength_A']} Å "
+                "(not applied automatically; set it under Pre-processing)"
+            )
         recipe = self.current().recipe.copy() if self.current() else AnalysisRecipe()
         recipe.peaks.manual_add_deg, recipe.peaks.manual_remove_deg = [], []
         return self.add_item(DatasetItem(pat, recipe, read_options=options))

@@ -37,15 +37,29 @@ vendor files; missing wavelength; inconsistent recipe.
    **peak-masked Whittaker** (provisional peaks are masked ±k·FWHM and the smoother runs
    through the remaining points. This keeps broad amorphous humps in the baseline without
    absorbing Bragg-peak tails). Overshoot warning if > 5 % of points are 3σ below the baseline.
+   SNIP, ALS and the polynomial follow the bottom of the noise (about 2σ under the mean), so
+   the running median of data − baseline is smoothed and added back. SNIP also runs on an
+   odd extension of the data, so points near the scan ends are clipped as often as interior
+   ones; otherwise the noise floor changes there and looks like a broad peak.
 
 ## 3. Peaks
 - Detection: `scipy.signal.find_peaks` with height **and** prominence ≥ k·σ. σ is the Poisson
   √counts for raw counts, otherwise a rolling MAD of first differences. FWHM ≥ 1.5 steps
   is required, plus optional min/max width (max width rejects amorphous humps).
+- The same test runs on Gaussian-smoothed copies of the unsmoothed net signal (FWHM 4, 8, 16
+  and 32 steps), against the σ of the smoothed signal: σ_s² = Σ g²σ². Otherwise a peak spread
+  over many points is missed however significant it is, and finer sampling would make peaks
+  harder to find. A peak above 2× the single-point threshold keeps its single-point position
+  and width; any other feature takes the scale where it is most significant, which gives
+  the fit window a width that noise cannot set. Features wider than 3× the kernel, and hits
+  whose kernel reaches past the scan end, are ignored.
 - In doublet mode, auto-detected Kα2 partners of stronger peaks are merged.
 - Manual edits (add at 2θ / remove near 2θ) are stored in the recipe and replayed exactly.
 - Post-fit noise rejection: an auto-detected peak is dropped and the rest refitted if its
-  fitted FWHM is < 1.5 steps or its height is < 3σ. Manual peaks are kept but flagged.
+  fitted FWHM is < 1.5 steps, its height is < 3σ_height, or its significance is below k.
+  Significance is √Δχ² = √Σ[(r + c)² − r²]/σ² over the fit window, with r the residuals and c
+  the peak's modelled signal, including the Kα2 component. It is exported as
+  `significance_sigma`. Manual peaks are kept but flagged.
 
 ## 4. Profile fitting
 - pseudo-Voigt: H·[η·L + (1−η)·G], both with FWHM w (exactly the FWHM).
@@ -57,9 +71,21 @@ vendor files; missing wavelength; inconsistent recipe.
 - Covariance (JᵀJ)⁻¹ by SVD, scaled by max(1, χ²_red) (weighted) or χ²_red (unweighted).
   Derived uncertainties (area, Voigt FWHM/height) use the delta method.
 - Reported per group: N points, parameters, dof, χ², χ²_red, R², condition number,
-  convergence. Flags: parameter at bound, ill-conditioned (cond > 1e10), singular
-  covariance (`parameters_not_identifiable`), undersampled (FWHM < 3 steps), low
-  significance (H < 3σ), window truncated at the scan edge.
+  convergence. Flags: parameter at bound, including η or γ (`shape_at_bound`), ill-conditioned
+  (cond > 1e10), singular covariance (`parameters_not_identifiable`), undersampled
+  (FWHM < 3 steps), low significance (H < 3σ), window truncated at the scan edge.
+- Fit quality: χ²_red > 3 flags the group, and χ²_red < 0.5 with ≥ 20 degrees of freedom flags σ
+  as too large (count rates labelled as counts look like this). A peak gets `poor_profile_fit`
+  from its own points, where its model exceeds 2 % of its maximum, so a wide window cannot dilute
+  it: reduced χ² above 3 with Poisson σ; for unweighted fits, whose noise under a strong peak is
+  unknown, lag-1 autocorrelation of the residuals more than 3 standard deviations above zero.
+- After confirmation, a seed width more than 1.5× away from the fitted width is replaced by the
+  fitted width and the fit and confirmation repeated once, so noise in a weak peak's seed cannot
+  merge its window with a neighbour's.
+- With `fit_doublet`, height and area describe the Kα1 component. The whole reflection's area is
+  (1 + R) × area.
+- All σ values are statistical. Zero shift, sample displacement, profile-shape error and
+  scan-to-scan reproducibility are not included.
 
 ## 5. Crystallographic quantities
 - Bragg: d = nλ/(2 sin θ), θ = (2θ)/2, n = 1; σ_d = d·cot θ·σ_θ with σ_θ = rad(σ_2θ)/2.

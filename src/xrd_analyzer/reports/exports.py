@@ -35,6 +35,7 @@ PEAK_COLUMNS = [
     ("scherrer_err_nm", "nm"),
     ("scherrer_status", ""),
     ("scherrer_reason", ""),
+    ("significance_sigma", "σ"),
     ("flags", ""),
 ]
 
@@ -66,6 +67,12 @@ def write_peak_table_csv(result: AnalysisResult, path: str | Path) -> Path:
         fh.write(f"# wavelength_A: {result.recipe['preprocess']['wavelength_A']}\n")
         for m in result.processed.uncertainty_model:
             fh.write(f"# uncertainty model: {m}\n")
+        if result.fit.doublet is not None:
+            total = 1.0 + result.fit.doublet[2]
+            fh.write(
+                "# doublet fit: height and area are Kα1 only; "
+                f"whole reflection = {total:g} × area\n"
+            )
         w = csv.writer(fh)
         w.writerow([f"{c} [{u}]" if u else c for c, u in PEAK_COLUMNS])
         for row in result.peak_rows():

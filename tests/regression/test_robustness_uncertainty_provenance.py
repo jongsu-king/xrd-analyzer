@@ -14,6 +14,8 @@ from xrd_analyzer.core.crystallography import (
     bragg,
     williamson_hall,
 )
+from xrd_analyzer.core.fit import fit_peaks
+from xrd_analyzer.core.peaks import PeakCandidate
 from xrd_analyzer.models.dataset import XRDPattern
 from xrd_analyzer.models.recipe import AnalysisRecipe
 from xrd_analyzer.models.units import CU_KA1_A, CU_KA2_A
@@ -159,27 +161,21 @@ def test_narrow_doublet_is_kept(seed):
     assert res.peaks[0].fit["center_deg"] == pytest.approx(30.0, abs=0.001)
 
 
-def test_observable_height_never_below_kalpha1_value():
-    from xrd_analyzer.core.analysis import doublet_observable_height
-    from xrd_analyzer.core.fit import PeakFit, peak_curve
+def test_doublet_significance_counts_both_components():
+    from xrd_analyzer.core.analysis import integrated_significance
 
-    for w in (1e-4, 1e-3, 0.05, 0.3):
-        p = PeakFit(
-            0,
-            "auto",
-            "pseudo_voigt",
-            0,
-            30.0,
-            None,
-            100.0,
-            None,
-            w,
-            None,
-            1.0,
-            None,
-            eta=0.5,
-            doublet=True,
-        )
-        d = (CU_KA1_A, CU_KA2_A, 0.5)
-        at_c1 = float(peak_curve(np.array([30.0]), p, d)[0])
-        assert doublet_observable_height(p, d) >= at_c1 - 1e-9
+    x = np.round(np.arange(25.0, 35.0, 0.01), 4)
+    d = (CU_KA1_A, CU_KA2_A, 0.5)
+    c2 = profiles.kalpha2_position(30.0, d[0], d[1])
+    truth = profiles.pseudo_voigt(x, 30.0, 40.0, 0.1, 0.5)
+    y = truth + 0.5 * profiles.pseudo_voigt(x, c2, 40.0, 0.1, 0.5)
+    cand = [PeakCandidate(30.0, 40.0, 0.1, 40.0, "auto")]
+    sigma = np.full_like(x, 5.0)
+    both = fit_peaks(x, y, cand, sigma=sigma, doublet=d, local_background="none")
+    single = fit_peaks(x, truth, cand, sigma=sigma, local_background="none")
+    with_ka2 = integrated_significance(both.peaks[0], both, x, sigma)
+    without = integrated_significance(single.peaks[0], single, x, sigma)
+    assert with_ka2 > without
+    # an exact fit leaves no residual, so √Δχ² is simply the signal in units of σ
+    assert with_ka2 == pytest.approx(np.sqrt(np.sum((y / sigma) ** 2)), rel=0.01)
+    assert without == pytest.approx(np.sqrt(np.sum((truth / sigma) ** 2)), rel=0.01)

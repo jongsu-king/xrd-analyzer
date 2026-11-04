@@ -8,6 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 MIN_POINTS = 5
+INTEGER_TOLERANCE = 1e-6
 
 
 @dataclass(frozen=True)
@@ -89,6 +90,13 @@ def check_arrays(two_theta_deg: NDArray[np.float64], intensity: NDArray[np.float
             )
         )
     return issues
+
+
+def non_integer_count(intensity: NDArray[np.float64]) -> int:
+    """Number of finite values that are not whole numbers. Raw detector counts always are."""
+    y = np.asarray(intensity, dtype=float)
+    y = y[np.isfinite(y)]
+    return int(np.sum(np.abs(y - np.round(y)) > INTEGER_TOLERANCE))
 
 
 def _longest_run(mask: NDArray[np.bool_]) -> int:

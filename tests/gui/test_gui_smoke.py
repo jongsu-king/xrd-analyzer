@@ -146,3 +146,78 @@ def test_gui_smoke_command(qtbot, tmp_path):
     out = tmp_path / "gui.json"
     assert main(["gui-smoke", "--offscreen", "--out", str(out)]) == 0
     assert json.loads(out.read_text("utf-8"))["gui_smoke"] == "PASS"
+
+
+def _real_style_xy(tmp_path):
+    p = tmp_path / "scan_exported.xy"
+    header = (
+        '\'Id: "S" Anode: "Cu" Wavelength: "1.5406" Scantype: "2Theta (Coupled TwoTheta/Theta)" '
+        'TimePerStep: "28.548" \n'
+    )
+    rows = "\n".join(f"{5 + 0.01 * i:.5f} {(70 + i % 9) / 28.548:.3f}" for i in range(300))
+    p.write_text(header + rows + "\n", encoding="utf-8")
+    return p
+
+
+def test_import_dialog_never_defaults_to_counts(win, tmp_path):
+    from xrd_analyzer.io import probe_file
+    from xrd_analyzer.ui.dialogs import ImportDialog
+
+    p = tmp_path / "plain.xy"
+    p.write_text("\n".join(f"{20 + i * 0.1:.1f} {i}" for i in range(50)) + "\n", encoding="utf-8")
+    dlg = ImportDialog(probe_file(p), "confirm", win)
+    assert dlg.iunit.currentIndex() == -1
+    dlg._accept()
+    assert "intensity unit" in dlg.error.text() and not dlg.result()
+    dlg.iunit.setCurrentIndex(dlg.iunit.findData("counts"))
+    dlg._accept()
+    assert dlg.options().intensity_unit == "counts" and dlg.result()
+
+
+def test_import_dialog_blocks_counts_for_fractional_values(win, tmp_path):
+    from xrd_analyzer.io import probe_file
+    from xrd_analyzer.ui.dialogs import ImportDialog
+
+    dlg = ImportDialog(probe_file(_real_style_xy(tmp_path)), "confirm", win)
+    assert not dlg.iunit.model().item(dlg.iunit.findData("counts")).isEnabled()
+    assert dlg.iunit.currentData() == "cps"  # the header and the values point to count rates
+    assert dlg.options().intensity_unit == "cps"
+
+
+def test_import_dialog_keeps_a_declared_unit_unless_the_values_rule_it_out(win, tmp_path):
+    from xrd_analyzer.io import probe_file
+    from xrd_analyzer.ui.dialogs import ImportDialog
+
+    whole = tmp_path / "w.csv"
+    whole.write_text("2theta_deg,counts\n" + "\n".join(f"{20 + i},{i}" for i in range(9)), "utf-8")
+    assert ImportDialog(probe_file(whole), "m", win).iunit.currentData() == "counts"
+    fractional = tmp_path / "f.csv"
+    fractional.write_text(
+        "2theta_deg,counts\n" + "\n".join(f"{20 + i},{i}.5" for i in range(9)), "utf-8"
+    )
+    assert ImportDialog(probe_file(fractional), "m", win).iunit.currentIndex() == -1
+
+
+def test_real_style_export_finds_nothing_false_with_the_offered_unit(win, qtbot, tmp_path):
+    from xrd_analyzer.io import probe_file
+    from xrd_analyzer.ui.dialogs import ImportDialog
+
+    p = _real_style_xy(tmp_path)
+    dlg = ImportDialog(probe_file(p), "confirm", win)
+    dlg._accept()
+    assert win.open_file(str(p), dlg.options()) == 0
+    assert win.current().pattern.intensity_unit == "cps"
+    assert "file records wavelength 1.5406" in win.log_view.toPlainText()
+
+
+def test_brml_opens_without_a_dialog(win, tmp_path):
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parents[1] / "unit"))
+    from test_bruker_brml import make_brml
+
+    path = make_brml(tmp_path / "scan.brml")
+    assert win.open_file(str(path), ask=False) == 0
+    item = win.current()
+    assert item.pattern.counts_like and item.pattern.parser == "bruker-brml"

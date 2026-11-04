@@ -8,6 +8,7 @@ from typing import Any, Protocol
 
 from ..models.dataset import XRDPattern
 from . import validators
+from .bruker import BrukerBrmlReader
 from .readers import (
     VENDOR_STUBS,
     ProbeResult,
@@ -34,7 +35,7 @@ class PatternReader(Protocol):
     def metadata(self, path: str | os.PathLike[str]) -> dict[str, str]: ...
 
 
-READERS: list[PatternReader] = [TextPatternReader(), *VENDOR_STUBS]
+READERS: list[PatternReader] = [TextPatternReader(), BrukerBrmlReader(), *VENDOR_STUBS]
 
 
 def get_reader(path: str | os.PathLike[str]) -> PatternReader:
