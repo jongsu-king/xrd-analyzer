@@ -20,6 +20,7 @@ from .io import ReadOptions, XRDFormatError, list_formats, read_pattern
 from .models.recipe import AnalysisRecipe
 from .models.units import CU_KA1_A, CU_KA2_A, WAVELENGTH_PRESETS, preset
 from .reports.exports import export_all, write_peak_table_csv
+from .reports.origin import LAUNCHER_NAME, OriginUnavailable, run_launcher, write_origin_bundle
 
 EXIT_INPUT = 2
 EXIT_ANALYSIS = 3
@@ -168,6 +169,11 @@ def _add_analysis_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--out", required=True, help="output directory")
     p.add_argument("--no-pdf", action="store_true")
+    p.add_argument(
+        "--origin",
+        action="store_true",
+        help=f"also write OUT/origin, with {LAUNCHER_NAME} to build an Origin project (.opju)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -191,6 +197,8 @@ def build_parser() -> argparse.ArgumentParser:
     pg = sub.add_parser("gui-smoke", help="open the GUI, analyse an example, close (build check)")
     pg.add_argument("--out", help="also write the JSON report to this file")
     pg.add_argument("--offscreen", action="store_true", help="no display needed")
+    po = sub.add_parser("open-in-origin", help="start Origin on a folder written with --origin")
+    po.add_argument("path", help="the folder or its .xrdorigin file")
     return ap
 
 
@@ -220,6 +228,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .ui.app import main as gui_main
 
         return gui_main()
+    if a.cmd == "open-in-origin":
+        try:
+            return run_launcher(a.path)
+        except OriginUnavailable as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return EXIT_INPUT
     try:
         recipe = _recipe_from_args(a)
         refs = _references(a, recipe.preprocess.wavelength_A)
@@ -244,6 +258,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             res = run_analysis(patterns[0], recipe, references=refs)
             for p in export_all(res, out, pdf=not a.no_pdf):
                 print(p)
+            if a.origin:
+                print(write_origin_bundle([res], out / "origin").launcher)
             for w in res.warnings:
                 print(f"warning: {w}", file=sys.stderr)
             return 0
@@ -276,6 +292,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     (out / "batch_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(out / "batch_summary.json")
+    analysed = [it.result for it in items if it.result is not None]
+    if a.origin and analysed:
+        print(write_origin_bundle(analysed, out / "origin").launcher)
     return EXIT_ANALYSIS if failed else 0
 
 

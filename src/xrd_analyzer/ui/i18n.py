@@ -20,6 +20,7 @@ STRINGS: dict[str, tuple[str, str]] = {
     "act.export": ("결과 내보내기 (CSV/JSON/PNG/SVG/HTML/PDF)…", "Export results…"),
     "act.export_fig": ("그래프 저장 (PNG/SVG/PDF)…", "Save figure…"),
     "act.export_batch": ("배치 통계 CSV 저장…", "Export batch statistics…"),
+    "act.open_origin": ("Origin으로 열기…", "Open in Origin…"),
     "act.quit": ("종료", "Quit"),
     "act.undo": ("실행 취소", "Undo"),
     "act.redo": ("다시 실행", "Redo"),

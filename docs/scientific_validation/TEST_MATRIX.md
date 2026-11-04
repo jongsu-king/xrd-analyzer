@@ -12,6 +12,7 @@
 | Regression | tests/regression/test_golden_examples.py | generator SHA-256 and result drift |
 | Real-file findings | tests/regression/test_real_data_findings.py | count rates vs counts, Bruker text header, detection recall and false positives, baseline bias, poor-fit and bound flags, doublet labelling, new CLI options |
 | Bruker BRML | tests/unit/test_bruker_brml.py | synthetic archives: columns from DataViews, wavelengths not applied, refusals for unverified versions/scans/absorbers, damaged archives, unsafe paths |
+| Origin folder | tests/integration/test_origin_bundle.py | CSV contents, ASCII and line ends, script commands, relocatable, unsafe names, several scans. On Windows: launcher with a stand-in program, Origin search, spaces and Korean in paths. Real Origin is not available |
 | Real files (optional) | tests/integration/test_real_bruker_files.py | `XRD_REAL_DATA_DIR`: `.brml` vs vendor `.xy`, exact text read, both routes find the same strong peaks |
 | GUI (offscreen) | tests/gui/test_gui_smoke.py | threaded run, export, undo/redo, errors, import confirmation, batch, pause/cancel, KO/EN, theme, project |
 

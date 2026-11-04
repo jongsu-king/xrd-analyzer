@@ -68,7 +68,8 @@ peak on 80 counts/step, 300 scans per condition (150 for the masked baseline).
 | Found: FWHM 0.25°, height 4.5σ per point | 0 % | 100 % |
 
 ## Not validated
-Absolute peak-position accuracy on real data (no certified standard was measured); crystallite
+That Origin accepts the generated LabTalk script and project: no copy of Origin was available, so
+the script follows OriginLab's documentation but has never run. Absolute peak-position accuracy on real data (no certified standard was measured); crystallite
 sizes on real data (no instrumental broadening was measured); instruments and software other
 than the one above; other vendor formats; interactive GUI use on a real display beyond the
 offscreen smoke tests; Intel macOS builds.

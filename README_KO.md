@@ -236,6 +236,20 @@ two_theta_deg,intensity_counts
 | `<이름>_report.html` | 그림이 포함된 단일 HTML 보고서(피크표, 요약) |
 | `<이름>_report.pdf` | 여러 쪽짜리 보고서: 요약·출처, 그래프, 피크표, Williamson–Hall 그래프. CJK 글꼴이 있으면 한글도 표시됩니다 |
 
+### OriginLab Origin에서 열기
+*파일 → Origin으로 열기…*(명령줄에서는 `--origin`)를 쓰면 데이터 CSV, LabTalk 스크립트,
+`open_in_origin.bat`이 든 `origin` 폴더가 생깁니다. Origin이 설치된 Windows PC에서
+`open_in_origin.bat`을 더블클릭하세요(Windows 인스톨러가 파일 형식을 등록했다면 `.xrdorigin`
+파일도 됩니다). Origin이 열리면서 패턴과 피크 통합문서, 데이터·기저선·피팅·피크 표시가 있는
+그래프, 데이터가 여러 개면 겹침 그래프를 만들고, 그 폴더에 프로젝트(`.opju`)를 저장합니다.
+그 다음부터는 `.opju`를 일반 Origin 프로젝트처럼 열면 됩니다.
+
+- Origin은 Windows 전용입니다. Mac이나 Linux에서 만들었다면 폴더를 Windows PC로 옮기세요.
+- `.opju`는 공개되지 않은 형식이라 이 프로그램이 직접 쓰지 못합니다. 파일은 Origin이 만듭니다.
+- **아직 실제 Origin으로 시험하지 않았습니다.** 명령은 OriginLab 문서를 따랐고, 실행 파일은
+  Windows에서 대역 프로그램으로 시험했습니다. 실패하면 Origin의 Script Window에 오류가
+  표시되니 알려 주세요.
+
 **상태 값:**
 - `OK`: 정상
 - `WARNING`: 계산은 했지만 이유를 꼭 읽어야 함
@@ -262,6 +276,7 @@ xrd-analyzer analyze FILE [옵션] --out DIR
 xrd-analyzer batch FILE... [옵션] --out DIR
 xrd-analyzer selftest [--out report.json]  설치 상태 자체 점검
 xrd-analyzer gui-smoke [--offscreen]       GUI를 열어 예제를 분석하고 닫기
+xrd-analyzer open-in-origin 경로            --origin으로 만든 폴더를 Origin에서 열기 (Windows)
 xrd-analyzer gui                           GUI 실행 (인자 없이 실행해도 GUI)
 ```
 
@@ -283,6 +298,7 @@ xrd-analyzer gui                           GUI 실행 (인자 없이 실행해�
 | `--reference-cubic a,centering[,이름]` | 계산된 기준 패턴. 예: `5.431020511,diamond,Si` |
 | `--reference-csv FILE` | 기준 CSV(`d_A` 열, 또는 `two_theta_deg` 열과 `# wavelength_A:` 줄) |
 | `--out DIR`, `--no-pdf` | 출력 폴더, PDF 보고서 생략 |
+| `--origin` | `DIR/origin`도 만듭니다. Origin이 이 폴더로 프로젝트를 만듭니다([§5](#5-결과와-내보내기-파일)). `batch`면 모든 파일을 프로젝트 하나로 묶습니다 |
 
 종료 코드:
 - `0`: 성공
@@ -339,8 +355,8 @@ Vol. C, Table 4.2.2.1). 장비에서 실제로 쓰는 파장과 맞는지 꼭 �
 | Si 유사 패턴 + Kα2 (이중 피크 피팅) | Kα1 위치 6/6, 오차 0.001° 이내 |
 | 나노결정 fcc 유사 패턴(D = 15 nm, ε = 1.5×10⁻³) + 비정질 험프 | Williamson–Hall D = 14.99 ± 0.23 nm, ε = (1.52 ± 0.08)×10⁻³. 험프는 기저선으로 분리(오차 약 5 counts) |
 
-- 자동 테스트는 **390개**이고, `XRD_REAL_DATA_DIR`을 지정하면 실제 파일 비교 12개가 더 돕니다
-  (실제 연구 데이터는 저장소에 없습니다). 분석 코어 커버리지는 95%입니다.
+- 자동 테스트는 **410개**이고, Windows에서만 도는 테스트가 6개 더 있으며, `XRD_REAL_DATA_DIR`을
+  지정하면 실제 파일 비교 12개가 더 돕니다(실제 연구 데이터는 저장소에 없습니다). 분석 코어 커버리지는 95%입니다.
 - 테스트 범위: 손상되거나 애매한 파일, NaN/Inf, 중복값, 피팅 미수렴, 식별 불가, 분산 전파,
   출처 기록, GUI(화면 없이 실행), CLI.
 - 설치본 검증: 릴리스 워크플로가 Windows, macOS, Linux에서 각각 실행합니다.
@@ -391,7 +407,7 @@ Vol. C, Table 4.2.2.1). 장비에서 실제로 쓰는 파장과 맞는지 꼭 �
 ## 12. 개발
 ```bash
 pip install -e ".[dev]"
-QT_QPA_PLATFORM=offscreen pytest            # 390개 테스트
+QT_QPA_PLATFORM=offscreen pytest            # 410개 테스트
 ruff check src tests && mypy
 python tools/generate_examples.py           # examples/synthetic 다시 생성
 ```

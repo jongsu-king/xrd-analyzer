@@ -9,6 +9,7 @@
 | Peak finding judges a peak as a whole, independent of sampling | synthetic Monte Carlo and 4 real scans | test_weak_peak_with_no_significant_point_is_found, test_detection_does_not_depend_on_how_finely_the_scan_is_sampled, VALIDATION.md |
 | Noise alone rarely gives a peak | synthetic Monte Carlo: false peaks in 2 of 2100 scans | test_noise_alone_gives_no_peaks, VALIDATION.md |
 | Baselines follow the mean background | implemented, checked on real scans | test_baseline_follows_the_mean_of_the_noise, test_snip_keeps_no_plateau_near_the_scan_start |
+| Opens results in OriginLab Origin and saves an .opju | **not tested with real Origin**: data files and launcher are tested, the LabTalk script follows the documentation | tests/integration/test_origin_bundle.py |
 | Reads Rigaku .ras/.rasx, PANalytical .xrdml, Bruker .raw, Philips .udf | UNSUPPORTED (explicit error) | test_vendor_formats_are_refused |
 | Never guesses axis quantity/unit; θ header needs confirmation | implemented | test_headerless_requires_axis_confirmation, test_theta_header_is_never_silently_converted |
 | Raw data immutable, SHA-256 recorded | implemented | test_raw_data_is_immutable_and_file_untouched, test_project_detects_changed_missing_and_corrupt |

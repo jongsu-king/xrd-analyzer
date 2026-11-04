@@ -27,6 +27,10 @@ Fixes from the first test on real instrument files (four scans, Bruker D2 PHASER
 - Doublet fits state that height and area are Kα1 only. The provenance `variance_model` now
   describes the model actually used. The file's wavelength is compared with the recipe's.
 - CLI: `--prominence-sigma`, `--smooth`; `--wavelength cu_ka1` fills in Kα2 when needed.
+- **Open results in OriginLab Origin** (*File → Open in Origin…*, `--origin`, `open-in-origin`): a
+  folder with CSV, a LabTalk script and a launcher makes Origin build the workbooks and graphs and
+  save an `.opju`. The Windows installer can register `.xrdorigin` so a double-click starts it.
+  **Not yet tested with real Origin.**
 - A candidate list cut at `max_peaks` now gives a warning.
 - `tests/regression/golden_v0_1_0.json` regenerated: the baseline change moves the synthetic
   `nano_fcc` results by up to 0.001° in position and 0.003° in FWHM, both within the accuracy

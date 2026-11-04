@@ -221,3 +221,24 @@ def test_brml_opens_without_a_dialog(win, tmp_path):
     assert win.open_file(str(path), ask=False) == 0
     item = win.current()
     assert item.pattern.counts_like and item.pattern.parser == "bruker-brml"
+
+
+def test_origin_folder_from_the_current_dataset(win, qtbot, tmp_path):
+    win.open_example("si_like")
+    with pytest.raises(ValueError, match="nothing analysed"):
+        win.export_origin_to(str(tmp_path))
+    win.apply_and_run()
+    _wait(qtbot, win)
+    bundle = win.export_origin_to(str(tmp_path))
+    assert bundle.launcher.is_file() and (bundle.folder / "pattern_01.csv").is_file()
+    assert "for Origin" in win.log_view.toPlainText()
+
+
+def test_origin_folder_holds_every_checked_analysed_dataset(win, qtbot, tmp_path):
+    for key in ("si_like", "nano_fcc"):
+        win.open_example(key)
+        win.apply_and_run()
+        _wait(qtbot, win)
+    bundle = win.export_origin_to(str(tmp_path))
+    assert (bundle.folder / "pattern_02.csv").is_file()
+    assert bundle.project.name == "xrd_analysis.opju"

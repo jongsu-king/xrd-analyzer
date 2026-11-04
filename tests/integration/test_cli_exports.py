@@ -183,5 +183,5 @@ def test_selftest_command_passes(tmp_path):
     out = tmp_path / "selftest.json"
     assert main(["selftest", "--out", str(out)]) == 0
     rep = json.loads(out.read_text("utf-8"))
-    assert rep["selftest"] == "PASS" and len(rep["checks"]) == 6
+    assert rep["selftest"] == "PASS" and len(rep["checks"]) == 7
     assert rep["environment"]["frozen"] is False

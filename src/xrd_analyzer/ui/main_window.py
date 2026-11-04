@@ -54,6 +54,7 @@ from ..project import (
 )
 from ..reports.exports import export_all
 from ..reports.figures import PlotSettings, draw_overlay, draw_result, draw_wh, save_figure
+from ..reports.origin import OriginBundle, OriginUnavailable, start_origin, write_origin_bundle
 from .dialogs import CubicReferenceDialog, ImportDialog, PlotSettingsDialog
 from .i18n import Translator
 from .params import ParamPanel
@@ -210,6 +211,7 @@ class MainWindow(QMainWindow):
         self.m_file.addAction(self._act("act.export", self.export_dialog, "Ctrl+E"))
         self.m_file.addAction(self._act("act.export_fig", self.export_figure_dialog))
         self.m_file.addAction(self._act("act.export_batch", self.export_batch_dialog))
+        self.m_file.addAction(self._act("act.open_origin", self.open_in_origin_dialog))
         self.m_file.addSeparator()
         self.m_file.addAction(self._act("act.quit", self.close, QKeySequence.StandardKey.Quit))
 
@@ -889,6 +891,26 @@ class MainWindow(QMainWindow):
                 self.export_to(folder)
             except (ValueError, OSError) as exc:
                 self.error("export", str(exc))
+
+    def export_origin_to(self, folder: str) -> OriginBundle:
+        """Write the Origin folder for the checked, analysed datasets (else the current one)."""
+        results = [r for r in (self.items[i].result for i in self.checked_indices()) if r]
+        item = self.current()
+        if not results and item is not None and item.result is not None:
+            results = [item.result]
+        bundle = write_origin_bundle(results, Path(folder) / "origin")
+        self.log(f"Wrote {len(results)} dataset(s) for Origin to {bundle.folder}")
+        return bundle
+
+    def open_in_origin_dialog(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, self.tr_("act.open_origin"))
+        if not folder:
+            return
+        try:
+            bundle = self.export_origin_to(folder)
+            start_origin(bundle.folder)
+        except (ValueError, OSError, OriginUnavailable) as exc:
+            self.error("Origin", str(exc))
 
     def export_figure_dialog(self) -> None:
         path, _ = QFileDialog.getSaveFileName(

@@ -225,6 +225,20 @@ deviation of 2θ, d and FWHM.
 | `<name>_report.html` | Self-contained report (embedded figures, peak table, summary) |
 | `<name>_report.pdf` | Multi-page report: summary and provenance, figure, peak table, Williamson–Hall plot. Korean text is supported when a CJK font is installed |
 
+### Opening results in OriginLab Origin
+*File → Open in Origin…* (or `--origin` on the command line) writes an `origin` folder with the
+data as CSV, a LabTalk script and `open_in_origin.bat`. On a Windows PC with Origin, double-click
+`open_in_origin.bat` (or the `.xrdorigin` file, if the Windows installer registered that file
+type). Origin opens, builds a workbook for the pattern and one for the peaks, a graph with the
+data, baseline, fit and peak markers, an overlay when there are several datasets, and saves
+a project (`.opju`) in that folder. From then on, the `.opju` opens like any Origin project.
+
+- Origin runs on Windows only. From a Mac or Linux PC, copy the folder to the Windows PC.
+- `.opju` is not a public format, so this program cannot write it itself. Origin makes the file.
+- **Not yet tested with real Origin.** The commands follow OriginLab's documentation, and the
+  launcher is tested on Windows with a stand-in program. If it fails, the error appears in
+  Origin's Script Window; please report it.
+
 **Status values:** `OK`, `WARNING` (computed, but read the reason) and `NOT_CALCULABLE`
 (not computed; the reason is given). **Peak flags** include `not_converged`,
 `parameters_not_identifiable`, `center_at_bound`, `width_at_bound`,
@@ -250,6 +264,7 @@ xrd-analyzer analyze FILE [options] --out DIR
 xrd-analyzer batch FILE... [options] --out DIR
 xrd-analyzer selftest [--out report.json]  verify this installation
 xrd-analyzer gui-smoke [--offscreen]       open the GUI, analyse an example, close
+xrd-analyzer open-in-origin PATH           start Origin on a folder written with --origin (Windows)
 xrd-analyzer gui                           start the GUI (also: no arguments)
 ```
 
@@ -271,6 +286,7 @@ xrd-analyzer gui                           start the GUI (also: no arguments)
 | `--reference-cubic a,centering[,name]` | computed reference, e.g. `5.431020511,diamond,Si` |
 | `--reference-csv FILE` | reference CSV (`d_A` or `two_theta_deg` + `# wavelength_A:`) |
 | `--out DIR`, `--no-pdf` | output folder; skip the PDF report |
+| `--origin` | also write `DIR/origin`, from which Origin builds a project (see [§5](#5-results-and-exported-files)). With `batch`, one project for all files |
 
 Exit codes: `0` success · `1` self-test failed · `2` input error (format, or axis/column
 confirmation needed) · `3` analysis error or partial batch failure.
@@ -325,8 +341,9 @@ Reading, noise model, peak positions and peak finding were also checked on four 
 | Si-like with Kα2 (doublet fit) | 6/6 Kα1 positions within 0.001° |
 | Nanocrystalline fcc-like (D = 15 nm, ε = 1.5×10⁻³) with an amorphous hump | Williamson–Hall D = 14.99 ± 0.23 nm, ε = (1.52 ± 0.08)×10⁻³; hump separated into the baseline (≈ 5 counts error) |
 
-There are **390 automated tests**, plus 12 comparisons with real files that run when
-`XRD_REAL_DATA_DIR` is set (real research data are not in this repository). Analysis-core
+There are **410 automated tests**, 6 more that run only on Windows, and 12 comparisons with
+real files that run when `XRD_REAL_DATA_DIR` is set (real research data are not in this
+repository). Analysis-core
 coverage is 95 %. They include
 malformed and ambiguous files, NaN/Inf, duplicates, non-convergence, identifiability,
 variance propagation, provenance, the GUI (offscreen) and the command-line interface.
@@ -376,7 +393,7 @@ frozen self-test, GUI smoke test, and install tests of the Windows installer and
 ## 12. Development
 ```bash
 pip install -e ".[dev]"
-QT_QPA_PLATFORM=offscreen pytest            # 390 tests
+QT_QPA_PLATFORM=offscreen pytest            # 410 tests
 ruff check src tests && mypy
 python tools/generate_examples.py           # regenerate examples/synthetic
 ```

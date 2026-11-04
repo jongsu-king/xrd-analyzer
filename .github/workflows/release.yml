@@ -79,8 +79,19 @@ jobs:
           if ($p.ExitCode -ne 0) { exit 1 }
           & C:\xrd-test\xrd-analyzer-cli.exe selftest --out dist\selftest-windows-installed.json
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          # The Origin file type: registered, reaches the launcher (no Origin on this machine), and
+          # removed on uninstall.
+          if (-not (Test-Path 'HKCU:\Software\Classes\.xrdorigin')) { Write-Error 'file type not registered'; exit 1 }
+          & C:\xrd-test\xrd-analyzer-cli.exe examples --out "$env:RUNNER_TEMP\ex"
+          & C:\xrd-test\xrd-analyzer-cli.exe analyze "$env:RUNNER_TEMP\ex\synthetic_si_like.csv" --wavelength cu_ka1 --no-pdf --origin --out "$env:RUNNER_TEMP\or"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $env:XRD_NO_PAUSE = '1'
+          & C:\xrd-test\xrd-analyzer-cli.exe open-in-origin "$env:RUNNER_TEMP\or\origin\open_in_origin.xrdorigin"
+          if ($LASTEXITCODE -ne 9) { Write-Error "expected exit code 9 (Origin not found), got $LASTEXITCODE"; exit 1 }
+          $global:LASTEXITCODE = 0
           $u = Start-Process -FilePath C:\xrd-test\unins000.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
           if ($u.ExitCode -ne 0) { exit 1 }
+          if (Test-Path 'HKCU:\Software\Classes\.xrdorigin') { Write-Error 'file type left behind'; exit 1 }
           Get-FileHash dist\*.exe, dist\*.zip -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Out-File -Encoding ascii dist\windows.sha256
 
       # ---------------------------------------------------------------- Linux
