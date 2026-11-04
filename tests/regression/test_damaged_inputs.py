@@ -367,7 +367,7 @@ def test_project_fields_of_the_wrong_kind_are_a_project_error(fields):
         resolve_entry(entry)
 
 
-@pytest.mark.parametrize("field", ["intensity_unit", "metadata", "two_theta_deg", "intensity"])
+@pytest.mark.parametrize("field", ["intensity_unit", "two_theta_deg", "intensity"])
 def test_embedded_background_fields_of_the_wrong_kind_are_a_project_error(saved_project, field):
     entry = ProjectEntry(**json.loads(saved_project)["entries"][2])
     entry.background[field] = {"a": 1}

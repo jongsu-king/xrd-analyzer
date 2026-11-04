@@ -73,6 +73,8 @@ class XRDPattern:
     quality_flags: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.intensity_unit, str) or not isinstance(self.metadata, Mapping):
+            raise ValueError("intensity_unit must be text and metadata an object")
         x = _frozen_copy(self.two_theta_deg)
         y = _frozen_copy(self.intensity)
         if x.ndim != 1 or y.ndim != 1:
