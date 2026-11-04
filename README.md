@@ -149,7 +149,7 @@ The interface is available in **Korean and English** (*View* menu) and in light 
 | Format | Status | Meaning |
 |---|---|---|
 | CSV, TXT, XY, DAT, TSV with a 2θ column and an intensity column | `SYNTHETIC_ONLY` | Implemented and tested with synthetic fixtures. The Bruker text export below is the exception |
-| Bruker text export (`.xy` with the `'Id: … TimePerStep: …` header line) | `VERIFIED_NATIVE` | Read by the text reader and compared with the same scans' `.brml` files. Values are count rates, so choose `cps`; the import dialog offers it when the values prove it |
+| Bruker text export (`.xy` with the `'Id: … TimePerStep: …` header line) | `VERIFIED_NATIVE` | Read by the text reader and compared with the same scans' `.brml` files, from one instrument and software version; the header does not record the version. Values are count rates, so choose `cps`; the import dialog offers it when the values prove it |
 | Bruker `.brml`, coupled 2θ/θ PSD fast scan, DIFFRAC version 8.6.3.0 | `VERIFIED_NATIVE` | Raw counts, so Poisson weights apply. Checked on four real D2 PHASER scans. Other versions, scan types, multi-scan files and absorbers are **refused with a clear message** |
 | Rigaku `.ras`/`.rasx`, Malvern Panalytical `.xrdml`, Bruker `.raw`, Philips `.udf` | `UNSUPPORTED` | Recognised and **refused with a clear message**. Vendor parsers are added only after validation against real files ([docs/adapters.md](docs/adapters.md)) |
 
@@ -198,7 +198,7 @@ The processing order is fixed and recorded in every result:
 | 3. Measured background | empty-holder or dark scan, scale factor | Interpolated onto the sample grid without extrapolation; the units must match; variances are added |
 | 4. Kα2 | `none`, `strip` (Rachinger), `fit_doublet` | `fit_doublet` keeps the Poisson noise model and is preferred. `strip` correlates noise, so its uncertainties are marked approximate. With `none`, resolved Kα2 lines appear as extra peaks |
 | 5. Smoothing | Savitzky–Golay window/order | Used **only for peak detection**; fits always use the unsmoothed data |
-| 6. Baseline | SNIP, ALS, iterative polynomial, peak-masked Whittaker, none | SNIP is robust for flat or sloped backgrounds. *Peak-masked Whittaker* fits a smoother through non-peak regions and keeps broad **amorphous humps** in the baseline without absorbing peak tails. SNIP, ALS and polynomial follow the bottom of the noise, so the noise-floor offset is added back and the baseline tracks the mean background |
+| 6. Baseline | SNIP, ALS, iterative polynomial, peak-masked Whittaker, none | SNIP is robust for flat or sloped backgrounds. *Peak-masked Whittaker* fits a smoother through non-peak regions and keeps broad **amorphous humps** in the baseline without absorbing peak tails. SNIP, ALS and polynomial follow the bottom of the noise, so the noise-floor offset is added back and the baseline tracks the mean background. **For peaks wider than about 0.5° use peak-masked Whittaker:** SNIP and ALS take part of them into the baseline. Such a peak gets the flag `baseline_absorbs_peak` and a warning. Settings count points at a step of about 0.01°; finer scans are averaged to that for the baseline |
 | 7. Peak detection | threshold k (× σ), minimum distance, minimum/maximum width, maximum number | Candidates come from single points and from Gaussian-smoothed copies of the data (FWHM 4–32 steps), each against the σ of that signal. σ is Poisson √counts for counts, otherwise a rolling noise estimate. Use a maximum width to stop a broad hump being taken as a peak |
 | 8. Manual edits | add at 2θ / remove near 2θ | Stored in the recipe and replayed exactly |
 | 9. Profile fitting | pseudo-Voigt or Voigt; local background none/constant/linear; window × FWHM | Overlapping peaks are fitted together. An auto-detected peak is kept only if the whole peak is significant (√Δχ² ≥ k, reported as `significance_sigma`). Others are rejected and the rest refitted, so a weak peak spread over many points counts as much as a tall narrow one |
@@ -235,9 +235,13 @@ a project (`.opju`) in that folder. From then on, the `.opju` opens like any Ori
 
 - Origin runs on Windows only. From a Mac or Linux PC, copy the folder to the Windows PC.
 - `.opju` is not a public format, so this program cannot write it itself. Origin makes the file.
+- If a step fails in Origin, the others still run, and `xrd_origin_log.txt` in the folder says
+  which one.
+- A double-clicked `.xrdorigin` file starts only files this version wrote itself. For a folder
+  from an older version or another person, export again, or run the `.bat` if you trust it.
 - **Not yet tested with real Origin.** The commands follow OriginLab's documentation, and the
-  launcher is tested on Windows with a stand-in program. If it fails, the error appears in
-  Origin's Script Window; please report it.
+  launcher is tested on Windows with a stand-in program. If it fails, please report the contents
+  of `xrd_origin_log.txt` and any error in Origin's Script Window.
 
 **Status values:** `OK`, `WARNING` (computed, but read the reason) and `NOT_CALCULABLE`
 (not computed; the reason is given). **Peak flags** include `not_converged`,

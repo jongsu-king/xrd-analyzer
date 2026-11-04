@@ -115,8 +115,9 @@ set "LINE="
 set "REG=%SystemRoot%\System32\reg.exe"
 for /f "delims=" %%L in ('%REG% query "%~1" /ve 2^>nul') do set "LINE=%%L"
 if not defined LINE exit /b 0
+rem reg.exe separates the columns with four spaces. A for /f on the text would trip on brackets.
 set "LINE=%LINE:*REG_=%"
-for /f "tokens=1,*" %%A in ("%LINE%") do set "VALUE=%%B"
+set "VALUE=%LINE:*    =%"
 exit /b 0
 
 :associated

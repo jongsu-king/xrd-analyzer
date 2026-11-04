@@ -63,13 +63,38 @@ peak on 80 counts/step, 300 scans per condition (150 for the masked baseline).
 | Found: FWHM 0.1°, height 4.5σ per point | 0 % | 99 % |
 | Found: FWHM 0.1°, height 6.7σ per point | 3 % | 100 % |
 | Found: FWHM 0.1°, height 8.9σ per point | 81 % | 100 % |
-| Found: FWHM 0.25°, height 1.7σ per point | 0 % | 25 % |
+| Found: FWHM 0.25°, height 1.7σ per point | 0 % | 27 % |
 | Found: FWHM 0.25°, height 2.8σ per point | 0 % | 100 % |
 | Found: FWHM 0.25°, height 4.5σ per point | 0 % | 100 % |
+
+## Recovery of known peaks across widths and steps (2026-11-04)
+One Gaussian peak of height 2000 on 200 counts/step, default settings, fitted with a pseudo-Voigt.
+Area and FWHM found, as a fraction of the truth. One Poisson scan per row.
+
+| Step, FWHM | Baseline | v0.1.1 area | area | FWHM | Flag |
+|---|---|---|---|---|---|
+| 0.0101°, 0.5° | SNIP | 0.99 | 0.98 | 0.98 | no |
+| 0.0101°, 1° | SNIP | 0.90 | 0.90 | 0.94 | yes |
+| 0.0101°, 2° | SNIP | 0.63 | 0.62 | 0.86 | yes |
+| 0.0101°, 1° | ALS | 0.73 | 0.75 | 0.86 | yes |
+| 0.0101°, 1° | polynomial | 1.00 | 0.99 | 0.99 | no |
+| 0.0101°, 1° and 2° | peak-masked | 1.01, 1.00 | 1.01, 1.00 | 1.00, 1.00 | no |
+| 0.002°, 0.15° | SNIP | not measured | 1.00 | 1.00 | no |
+| 0.0005°, 0.15° | SNIP, ALS, polynomial, peak-masked | not measured | 1.00 | 1.00 | no |
+| 0.0002°, 0.15° | SNIP, ALS, polynomial, peak-masked | not measured | 1.00 | 1.00 | no |
+
+An earlier state of this version, never released, followed broad peaks with its noise-floor offset
+(SNIP, 0.0101°, 1°: area 0.35), which these checks caught. A scan of 1,000,000 points with 40 peaks
+takes under a second and finds all 40.
+
+In a very dense pattern (38 peaks of FWHM 0.3° spaced 1° apart) the SNIP baseline is still about
+4σ above the true background, about 4 % of each peak's height, with no flag. Use the peak-masked
+baseline there.
 
 ## Not validated
 That Origin accepts the generated LabTalk script and project: no copy of Origin was available, so
 the script follows OriginLab's documentation but has never run. Absolute peak-position accuracy on real data (no certified standard was measured); crystallite
 sizes on real data (no instrumental broadening was measured); instruments and software other
-than the one above; other vendor formats; interactive GUI use on a real display beyond the
-offscreen smoke tests; Intel macOS builds.
+than the one above; other vendor formats; Intel macOS builds. The GUI was run once on a real
+macOS display through its code (import of a real scan, analysis, Origin export), without a person
+clicking through it, and not on Windows or Linux displays.

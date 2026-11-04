@@ -40,7 +40,13 @@ vendor files; missing wavelength; inconsistent recipe.
    SNIP, ALS and the polynomial follow the bottom of the noise (about 2σ under the mean), so
    the running median of data − baseline is smoothed and added back. SNIP also runs on an
    odd extension of the data, so points near the scan ends are clipped as often as interior
-   ones; otherwise the noise floor changes there and looks like a broad peak.
+   ones; otherwise the noise floor changes there and looks like a broad peak. The offset is held
+   near the lower quartile of its values within five windows, and the median near its own lower
+   quartile, so a broad peak or a dense pattern does not lift it much.
+   Settings count points. When the median step is more than twice as fine as 0.01° and the steps
+   are about uniform, the baseline is computed on block means and interpolated back.
+   A baseline that climbs under a peak by more than 3 % of the peak's height, measured between the
+   centre and ±2 FWHM, gives the flag `baseline_absorbs_peak` and a warning.
 
 ## 3. Peaks
 - Detection: `scipy.signal.find_peaks` with height **and** prominence ≥ k·σ. σ is the Poisson

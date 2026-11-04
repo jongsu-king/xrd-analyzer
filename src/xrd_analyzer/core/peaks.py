@@ -16,7 +16,7 @@ from numpy.typing import NDArray
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks, peak_widths
 
-from .preprocessing import block_means, coarsening_factor, noise_sigma
+from .preprocessing import REFERENCE_STEP_DEG, block_means, coarsening_factor, noise_sigma
 from .profiles import kalpha2_position
 
 FloatArray = NDArray[np.float64]
@@ -53,19 +53,30 @@ class _Hit:
     strong: bool = False
 
 
+def _widths_deg(x: FloatArray, y: FloatArray, idx: NDArray[np.intp]) -> FloatArray:
+    """FWHM of each peak in degrees, measured on the axis, so mixed steps count correctly."""
+    _, _, left, right = peak_widths(y, idx, rel_height=0.5)
+    points = np.arange(x.size)
+    return np.asarray(np.interp(right, points, x) - np.interp(left, points, x), dtype=float)
+
+
+def manual_seed_width(x: FloatArray) -> float:
+    """Width assumed for a manual peak with no other to go by: 10 steps, or 0.1° on fine scans."""
+    return 10.0 * max(float(np.median(np.diff(x))), REFERENCE_STEP_DEG)
+
+
 def _pointwise_hits(
     x: FloatArray,
     y: FloatArray,
     thr: float | FloatArray,
     sigma: FloatArray,
     distance: int,
-    step: float,
     min_distance_deg: float,
 ) -> list[_Hit]:
     idx, props = find_peaks(y, height=thr, prominence=thr, distance=distance)
     if idx.size == 0:
         return []
-    widths = peak_widths(y, idx, rel_height=0.5)[0] * step
+    widths = _widths_deg(x, y, idx)
     thr_at = np.broadcast_to(thr, y.shape)[idx]
     return [
         _Hit(
@@ -159,7 +170,7 @@ def detect_peaks(
         thr_report = float(thr)
     distance = max(1, round(min_distance_deg / step))
     source = noise_reference if noise_reference is not None else y
-    hits = _pointwise_hits(x, y, thr, sigma, distance, step, min_distance_deg)
+    hits = _pointwise_hits(x, y, thr, sigma, distance, min_distance_deg)
     for kernel in SEARCH_FWHM_STEPS:
         hits += _smoothed_hits(
             x, source, sigma, prominence_sigma, floor, distance, step, kernel, min_distance_deg
@@ -260,8 +271,7 @@ def apply_manual_edits(
     removed = len(candidates) - len(kept)
     if removed:
         notes.append(f"{removed} peak(s) removed manually")
-    step = float(np.median(np.diff(x)))
-    default_w = float(np.median([c.fwhm_est_deg for c in kept])) if kept else 10 * step
+    default_w = float(np.median([c.fwhm_est_deg for c in kept])) if kept else manual_seed_width(x)
     for pos in add_deg:
         if not x[0] <= pos <= x[-1]:
             notes.append(f"manual peak at {pos:.4f}° is outside the data range — ignored")

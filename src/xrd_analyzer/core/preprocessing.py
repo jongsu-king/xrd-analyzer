@@ -23,9 +23,13 @@ FLOOR_WINDOW = 161
 # windows, which stays with the noise beside a peak that fills one whole window.
 FLOOR_QUIET_WINDOWS = 5
 FLOOR_MARGIN = 1.25
+# The median of data − lower envelope may be this many times its lower quartile. For noise alone
+# that ratio is about 1.5 (2σ over 1.33σ).
+FLOOR_QUARTILE_LIMIT = 2.0
 # Baseline parameters count points. Scans sampled more than twice as finely as this are averaged
 # down to about this step for the baseline, so that a setting means the same width in degrees.
 REFERENCE_STEP_DEG = 0.01
+MIN_BLOCKS = 100  # a narrow scan keeps at least this many averaged points
 
 
 class ProcessingError(ValueError):
@@ -210,7 +214,11 @@ def coarsening_factor(x: FloatArray) -> int:
     """How many points to average so that a finely sampled scan is near the reference step."""
     steps = np.diff(x)
     step = float(np.median(steps)) if steps.size else 0.0
-    return max(1, int(REFERENCE_STEP_DEG / step + 1e-6)) if step > 0 else 1  # 0.01/0.001 ≈ 9.99…
+    if step <= 0 or float(np.percentile(steps, 95)) > 2.0 * step:
+        return 1  # with mixed steps, blocks that suit the fine part would swallow the coarse one
+    return max(
+        1, min(int(REFERENCE_STEP_DEG / step + 1e-6), x.size // MIN_BLOCKS)
+    )  # 0.01/0.001 ≈ 9.99…
 
 
 def _block_starts(n: int, factor: int) -> NDArray[np.intp]:
@@ -237,13 +245,17 @@ def _noise_floor(residual: FloatArray, window: int) -> FloatArray:
     """Slowly varying offset between noisy data and a lower-envelope baseline.
 
     Lower-envelope estimators follow the bottom of the noise, about 2σ under the mean
-    background. A peak filling less than half of ``window`` leaves its median to the noise. A
-    wider one lifts the median, and that would take the peak into the baseline. The noise changes
-    slowly, so the offset is held near what the quieter stretches close by show.
+    background. A peak filling less than half of ``window`` leaves its median to the noise, and
+    less than three quarters its lower quartile. A wider one lifts both, and that would take the
+    peak into the baseline. The noise changes slowly, so the offset is held near what the quieter
+    stretches close by show.
     """
     n = residual.size
     window = max(3, min(window, n if n % 2 else n - 1))
     floor = np.maximum(median_filter(residual, size=window, mode="nearest"), 0.0)
+    # where peaks fill more than half of the window, the median sees them and the quartile does not
+    lower = percentile_filter(residual, 25, size=window, mode="reflect")
+    floor = np.minimum(floor, FLOOR_QUARTILE_LIMIT * np.maximum(lower, 0.0))
     # reflect: the ends of a lower envelope stay on the data; repeated, they would look quiet
     quiet = percentile_filter(floor, 25, size=FLOOR_QUIET_WINDOWS * window, mode="reflect")
     held = np.minimum(floor, FLOOR_MARGIN * quiet)

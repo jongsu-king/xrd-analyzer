@@ -155,10 +155,10 @@ def test_corrupt_deflate_data_is_refused(tmp_path):
         read_pattern(path)
 
 
-def test_a_folder_named_like_a_file_is_a_file_system_error(tmp_path):
+def test_a_folder_named_like_a_file_is_a_clean_error(tmp_path):
     for name in ("x.brml", "x.csv"):
         (tmp_path / name).mkdir()
-        with pytest.raises(OSError):
+        with pytest.raises((OSError, XRDFormatError)):
             read_pattern(tmp_path / name)
 
 
@@ -247,6 +247,14 @@ def test_text_without_a_byte_order_mark_is_still_called_binary(tmp_path):
     path.write_bytes(TEXT.encode("utf-16-le"))
     with pytest.raises(XRDFormatError, match="binary"):
         read_pattern(path)
+
+
+def test_a_named_encoding_reads_text_without_a_byte_order_mark(tmp_path):
+    path = tmp_path / "scan.csv"
+    path.write_bytes(TEXT.encode("utf-16-le"))
+    assert (
+        read_pattern(path, ReadOptions(encoding="utf-16-le")).two_theta_deg.size == TWO_THETA.size
+    )
 
 
 def test_an_underscore_does_not_make_a_number(tmp_path):
@@ -357,6 +365,14 @@ def test_project_fields_of_the_wrong_kind_are_a_project_error(fields):
     )
     with pytest.raises(ProjectError):
         resolve_entry(entry)
+
+
+@pytest.mark.parametrize("field", ["intensity_unit", "metadata", "two_theta_deg", "intensity"])
+def test_embedded_background_fields_of_the_wrong_kind_are_a_project_error(saved_project, field):
+    entry = ProjectEntry(**json.loads(saved_project)["entries"][2])
+    entry.background[field] = {"a": 1}
+    with pytest.raises(ProjectError):
+        resolve_background(entry)
 
 
 def test_read_options_with_unknown_fields_are_a_project_error(saved_project, tmp_path):

@@ -103,6 +103,17 @@ def test_a_coarse_or_ordinary_scan_uses_every_point_for_the_baseline():
     assert proc.coarsening_factor(np.arange(20.0, 60.0, 0.001)) == 10
 
 
+@pytest.mark.parametrize("method", ["snip", "masked", "als", "poly"])
+def test_a_narrow_fine_scan_keeps_enough_points_for_its_baseline(method):
+    x = 30.0 + 1e-5 * np.arange(800)
+    assert proc.coarsening_factor(x) == 8
+    y = np.random.default_rng(0).poisson(100 + _peak(x, 30.004, 0.001, 900.0)).astype(float)
+    recipe = AnalysisRecipe()
+    recipe.preprocess.wavelength_A = 1.5406
+    recipe.preprocess.baseline_method = method
+    assert run_analysis(XRDPattern("p", x, y, "counts"), recipe).processed.baseline.size == 800
+
+
 def test_block_helpers_cover_every_point():
     v = np.arange(10.0)
     assert proc.block_means(v, 3).tolist() == [1.0, 4.0, 7.0, 9.0]
@@ -117,6 +128,41 @@ def test_fine_scan_note_says_what_was_done():
     x, y = _scan(0.001, 0.15)
     _, res = _main_peak(x, y, "snip", fwhm=0.15)
     assert any("means of 10 points" in n for n in res.notes)
+
+
+def test_a_dense_pattern_keeps_its_baseline_near_the_background():
+    x = np.arange(20.0, 60.0, 0.0101)
+    mean = 200 + sum(_peak(x, c, 0.3, 1500.0) for c in np.arange(21.0, 59.0, 1.0))
+    y = np.random.default_rng(3).poisson(mean).astype(float)
+    assert np.mean(proc.baseline_snip(y, 40)) - 200.0 < 4.0 * math.sqrt(200.0)
+
+
+def test_a_manual_peak_on_a_fine_scan_is_masked_and_fitted_at_its_width():
+    x = np.arange(20.0, 60.0, 0.001)
+    y = np.random.default_rng(0).poisson(100 + _peak(x, 40.0, 0.15, 900.0)).astype(float)
+    recipe = AnalysisRecipe()
+    recipe.preprocess.wavelength_A = 1.5406
+    recipe.preprocess.baseline_method = "masked"
+    recipe.peaks.auto_detect = False
+    recipe.peaks.manual_add_deg = [40.0]
+    p = run_analysis(XRDPattern("p", x, y, "counts"), recipe).fit.peaks[0]
+    assert p.height == pytest.approx(900.0, rel=0.05)
+    assert p.fwhm_deg == pytest.approx(0.15, rel=0.05)
+
+
+@pytest.mark.parametrize("method", ["snip", "masked"])
+def test_a_scan_with_two_steps_keeps_the_peaks_of_both_parts(method):
+    x = np.concatenate((np.arange(20.0, 30.0, 0.001), np.arange(30.0, 60.0, 0.05)))
+    y = _peak(x, 25.0, 0.15, 900.0) + _peak(x, 45.0, 0.3, 900.0)
+    y = np.random.default_rng(0).poisson(100 + y).astype(float)
+    assert proc.coarsening_factor(x) == 1
+    recipe = AnalysisRecipe()
+    recipe.preprocess.wavelength_A = 1.5406
+    recipe.preprocess.baseline_method = method
+    peaks = run_analysis(XRDPattern("p", x, y, "counts"), recipe).fit.peaks
+    found = {c: [p for p in peaks if abs(p.center_deg - c) < 0.1] for c in (25.0, 45.0)}
+    assert found[25.0] and found[45.0]
+    assert found[45.0][0].fwhm_deg == pytest.approx(0.3, rel=0.25)
 
 
 # ------------------------------------------------------------------ the warning
@@ -228,3 +274,14 @@ def test_detection_searches_physical_widths_on_fine_scans():
     cands, _ = detect_peaks(x, net, net, 6.0, 0.15, 0.0, 40, sigma)
     assert [round(c.position_deg) for c in cands] == [30]
     assert cands[0].fwhm_est_deg == pytest.approx(0.15, rel=0.5)
+
+
+@pytest.mark.parametrize("recorded", ["Cu", "", "1.5406 A"])
+def test_a_recorded_wavelength_that_is_not_a_number_is_ignored(recorded):
+    x = np.round(np.arange(20.0, 40.0, 0.02), 6)
+    y = np.random.default_rng(0).poisson(100 + _peak(x, 30.0, 0.2, 900.0)).astype(float)
+    recipe = AnalysisRecipe()
+    recipe.preprocess.wavelength_A = 1.5406
+    pat = XRDPattern("p", x, y, "counts", metadata={"file_wavelength_A": recorded})
+    res = run_analysis(pat, recipe)
+    assert res.fit.peaks and not [w for w in res.warnings if "recorded in the file" in w]

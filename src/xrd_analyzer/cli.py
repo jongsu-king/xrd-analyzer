@@ -203,6 +203,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except OSError as exc:  # an output file open in another program, a full disk
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_INPUT
+
+
+def _main(argv: Sequence[str] | None) -> int:
     a = build_parser().parse_args(argv)
     if a.cmd == "formats":
         for f in list_formats():

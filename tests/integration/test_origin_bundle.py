@@ -298,6 +298,18 @@ def test_cli_has_no_folder_without_the_option(si_csv, tmp_path):
     assert not (out / "origin").exists()
 
 
+def test_cli_reports_a_locked_output_file_without_a_traceback(
+    si_csv, tmp_path, capsys, monkeypatch
+):
+    def locked(*_args, **_kwargs):
+        raise PermissionError("pattern_01.csv is open in another program")
+
+    monkeypatch.setattr("xrd_analyzer.cli.write_origin_bundle", locked)
+    args = ["analyze", str(si_csv), "--wavelength", "cu_ka1", "--no-pdf", "--origin"]
+    assert cli_main([*args, "--out", str(tmp_path / "o")]) == 2
+    assert "open in another program" in capsys.readouterr().err
+
+
 def test_open_refuses_a_folder_that_is_not_a_bundle(tmp_path, capsys):
     assert cli_main(["open-in-origin", str(tmp_path)]) == 2
     assert "not an XRD Analyzer Origin folder" in capsys.readouterr().err

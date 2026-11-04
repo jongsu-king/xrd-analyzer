@@ -44,6 +44,7 @@ from .peaks import (
     apply_manual_edits,
     detect_peaks,
     drop_kalpha2_partners,
+    manual_seed_width,
 )
 from .reference import MatchResult, ReferencePattern, match_reference
 
@@ -395,7 +396,7 @@ def preprocess(
             sigma if sigma is not None else proc.local_noise_sigma(y - prov),
             ps.max_width_deg,
         )
-        manual = [(c, 10 * float(np.median(np.diff(x)))) for c in ps.manual_add_deg]
+        manual = [(c, manual_seed_width(x)) for c in ps.manual_add_deg]
         centers = [c.position_deg for c in cands] + [m[0] for m in manual]
         fwhms = [c.fwhm_est_deg for c in cands] + [m[1] for m in manual]
         mask = proc.peak_mask(x, centers, fwhms, pp.mask_fwhm_factor)
@@ -420,6 +421,14 @@ def preprocess(
         warnings,
         notes,
     )
+
+
+def _number(text: Any) -> float | None:
+    """A value recorded in a file, if it is a number. Files are not ours to trust."""
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return None
 
 
 def baseline_rise(p: Any, x: FloatArray, baseline: FloatArray) -> float:
@@ -646,8 +655,8 @@ def run_analysis(
             "Kα1/Kα2 doublet fit: height and area describe the Kα1 component only; the area of "
             f"the whole reflection is {1.0 + doublet[2]:g} × area"
         )
-    file_wl = pattern.metadata.get("file_wavelength_A")
-    if file_wl is not None and abs(float(file_wl) - wl) > 0.002:
+    file_wl = _number(pattern.metadata.get("file_wavelength_A"))
+    if file_wl is not None and abs(file_wl - wl) > 0.002:
         warnings.append(
             f"recipe wavelength {wl} Å differs from {file_wl} Å recorded in the file; "
             "the recipe value was used"

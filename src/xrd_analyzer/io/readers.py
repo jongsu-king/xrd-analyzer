@@ -290,7 +290,7 @@ def _read_text(path: Path, encoding: str | None) -> tuple[str, str]:
             return raw.decode(marked), marked
         except UnicodeDecodeError as exc:
             raise XRDFormatError(f"{path.name}: damaged {marked} text: {exc}") from exc
-    if b"\x00" in raw[:4096]:
+    if b"\x00" in raw[:4096] and not encoding:
         raise XRDFormatError(f"{path.name}: binary content detected — not a delimited text file")
     for enc in [encoding] if encoding else ["utf-8-sig", "cp949", "latin-1"]:
         try:

@@ -97,8 +97,8 @@ def resolve_background(entry: ProjectEntry) -> XRDPattern | None:
             b.get("parser", "embedded"),
             quality_flags=tuple(b.get("quality_flags", ())),
         )
-    except (KeyError, ValueError, TypeError) as exc:
-        raise ProjectError(f"{entry.name}: embedded background malformed: {exc}") from exc
+    except (KeyError, ValueError, TypeError, AttributeError) as exc:
+        raise ProjectError(f"{entry.name}: embedded background malformed: {exc!r}") from exc
     if sha256_arrays(pat.two_theta_deg, pat.intensity) != b.get("array_sha256"):
         raise ProjectError(f"{entry.name}: embedded background hash mismatch (corrupted?)")
     return pat

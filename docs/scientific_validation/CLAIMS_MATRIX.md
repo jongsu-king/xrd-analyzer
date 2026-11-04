@@ -9,6 +9,10 @@
 | Peak finding judges a peak as a whole, independent of sampling | synthetic Monte Carlo and 4 real scans | test_weak_peak_with_no_significant_point_is_found, test_detection_does_not_depend_on_how_finely_the_scan_is_sampled, VALIDATION.md |
 | Noise alone rarely gives a peak | synthetic Monte Carlo: false peaks in 2 of 2100 scans | test_noise_alone_gives_no_peaks, VALIDATION.md |
 | Baselines follow the mean background | implemented, checked on real scans | test_baseline_follows_the_mean_of_the_noise, test_snip_keeps_no_plateau_near_the_scan_start |
+| Polynomial and peak-masked baselines keep broad peaks; SNIP and ALS flag those they take in | synthetic known answers, FWHM up to 2° | test_broad_peaks_keep_their_area, test_a_peak_the_baseline_follows_is_flagged |
+| Baseline results do not depend on the step, 0.005–0.0002° | synthetic known answers, within 2 % | test_results_do_not_depend_on_how_finely_the_scan_is_sampled |
+| Damaged files give a clear error | seeded search over damaged text, BRML and project files | tests/regression/test_damaged_inputs.py |
+| A .xrdorigin file starts only files this version wrote | implemented; Windows launcher tested on CI | test_a_changed_folder_is_not_started |
 | Opens results in OriginLab Origin and saves an .opju | **not tested with real Origin**: data files and launcher are tested, the LabTalk script follows the documentation | tests/integration/test_origin_bundle.py |
 | Reads Rigaku .ras/.rasx, PANalytical .xrdml, Bruker .raw, Philips .udf | UNSUPPORTED (explicit error) | test_vendor_formats_are_refused |
 | Never guesses axis quantity/unit; θ header needs confirmation | implemented | test_headerless_requires_axis_confirmation, test_theta_header_is_never_silently_converted |
