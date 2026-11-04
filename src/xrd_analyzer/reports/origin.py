@@ -66,19 +66,12 @@ set "ORIGIN=%XRD_ORIGIN_EXE:"=%"
 goto found
 
 :association
-rem The program Windows opens .opju files with, or the Origin beside it if that is a helper.
-set "OPJU_TYPE="
-for /f "tokens=1,* delims==" %%A in ('assoc .opju 2^>nul') do set "OPJU_TYPE=%%B"
-if not defined OPJU_TYPE goto search
-set "OPEN_CMD="
-for /f "tokens=1,* delims==" %%A in ('ftype %OPJU_TYPE% 2^>nul') do set "OPEN_CMD=%%B"
-if not defined OPEN_CMD goto search
-for %%A in (%OPEN_CMD%) do (
-  for %%E in ("%%~dpAOrigin*64.exe") do call :consider "%%~E"
-  if not defined ORIGIN call :consider "%%~A"
-  goto associated
-)
-:associated
+rem The program Windows opens .opju files with, for this user or for all of them.
+call :registered "HKCR\.opju"
+if not defined VALUE goto search
+call :registered "HKCR\%VALUE%\shell\open\command"
+if not defined VALUE goto search
+call :associated %VALUE%
 if defined ORIGIN goto found
 
 :search
@@ -114,6 +107,23 @@ echo Origin's Script Window:
 echo run.section("%HERE%\{SCRIPT_NAME}", Main, "%HERE%");
 if not defined XRD_NO_PAUSE pause
 exit /b {EXIT_ORIGIN_NOT_FOUND}
+
+:registered
+rem Sets VALUE to the default value of a registry key, whatever Windows calls that value.
+set "VALUE="
+set "LINE="
+set "REG=%SystemRoot%\System32\reg.exe"
+for /f "delims=" %%L in ('%REG% query "%~1" /ve 2^>nul') do set "LINE=%%L"
+if not defined LINE exit /b 0
+set "LINE=%LINE:*REG_=%"
+for /f "tokens=1,*" %%A in ("%LINE%") do set "VALUE=%%B"
+exit /b 0
+
+:associated
+rem %1 is the registered program. It may be a helper, so Origin beside it comes first.
+for %%E in ("%~dp1Origin*64.exe") do call :consider "%%~E"
+if not defined ORIGIN call :consider "%~1"
+exit /b 0
 
 :consider
 rem %1 is a candidate. Origin Viewer cannot run scripts, so it does not count.

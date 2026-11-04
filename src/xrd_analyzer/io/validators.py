@@ -9,6 +9,8 @@ from numpy.typing import NDArray
 
 MIN_POINTS = 5
 INTEGER_TOLERANCE = 1e-6
+# No detector or normalisation comes near this. Squares of such values overflow in the fit.
+MAX_INTENSITY = 1e100
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,14 @@ def check_arrays(two_theta_deg: NDArray[np.float64], intensity: NDArray[np.float
         issues.append(Issue("error", "nonfinite_intensity", "intensity contains NaN/Inf"))
     if issues:
         return issues
+    if np.abs(y).max() > MAX_INTENSITY:
+        return [
+            Issue(
+                "error",
+                "intensity_out_of_range",
+                f"intensity reaches {np.abs(y).max():.3g}, beyond any measured or scaled data",
+            )
+        ]
     if x.min() <= 0.0 or x.max() >= 180.0:
         issues.append(
             Issue(

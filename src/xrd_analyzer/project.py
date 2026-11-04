@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .core.synthetic import make_example
-from .io import ReadOptions, read_pattern
+from .io import ReadOptions, XRDFormatError, read_pattern
 from .models.dataset import XRDPattern, sha256_arrays
 from .models.recipe import AnalysisRecipe
 
@@ -167,15 +167,33 @@ def load_project(path: str | Path) -> Project:
         entries = [ProjectEntry(**e) for e in data.get("entries", [])]
     except TypeError as exc:
         raise ProjectError(f"project entry malformed: {exc}") from exc
-    return Project(entries, data.get("active"), data.get("plot_settings") or {})
+    active = data.get("active")
+    settings = data.get("plot_settings")
+    return Project(
+        entries,
+        active if type(active) is int else None,
+        settings if isinstance(settings, dict) else {},
+    )
 
 
 def resolve_entry(entry: ProjectEntry) -> tuple[XRDPattern, AnalysisRecipe]:
     """Re-create the pattern for ``entry`` and verify its hash. Raises ProjectError."""
     try:
+        return _resolve_entry(entry)
+    except (ProjectError, XRDFormatError):
+        raise
+    except (TypeError, AttributeError, KeyError, ValueError) as exc:  # fields of the wrong kind
+        raise ProjectError(f"{entry.name}: project entry malformed: {exc!r}") from exc
+
+
+def _resolve_entry(entry: ProjectEntry) -> tuple[XRDPattern, AnalysisRecipe]:
+    try:
         recipe = AnalysisRecipe.from_dict(entry.recipe)
     except (ValueError, TypeError) as exc:
         raise ProjectError(f"{entry.name}: invalid recipe: {exc}") from exc
+    problems = recipe.validate()
+    if problems:
+        raise ProjectError(f"{entry.name}: invalid recipe: {'; '.join(problems)}")
     if entry.kind == "example":
         if entry.example_key is None:
             raise ProjectError(f"{entry.name}: example key missing")
@@ -199,8 +217,8 @@ def resolve_entry(entry: ProjectEntry) -> tuple[XRDPattern, AnalysisRecipe]:
                 "embedded",
                 synthetic=bool(emb.get("synthetic")),
             )
-        except (KeyError, ValueError) as exc:
-            raise ProjectError(f"{entry.name}: embedded data malformed: {exc}") from exc
+        except (KeyError, ValueError, TypeError, AttributeError) as exc:
+            raise ProjectError(f"{entry.name}: embedded data malformed: {exc!r}") from exc
         if sha256_arrays(pat.two_theta_deg, pat.intensity) != emb.get("array_sha256"):
             raise ProjectError(f"{entry.name}: embedded data hash mismatch (corrupted?)")
         return pat, recipe
@@ -209,6 +227,6 @@ def resolve_entry(entry: ProjectEntry) -> tuple[XRDPattern, AnalysisRecipe]:
     if pat.sha256 != entry.sha256:
         raise ProjectError(
             f"{entry.name}: SHA-256 mismatch — the raw data changed since the project was "
-            f"saved (expected {entry.sha256[:12]}…, found {str(pat.sha256)[:12]}…)"
+            f"saved (expected {str(entry.sha256)[:12]}…, found {str(pat.sha256)[:12]}…)"
         )
     return pat, recipe

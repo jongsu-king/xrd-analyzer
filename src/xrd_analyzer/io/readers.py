@@ -17,6 +17,7 @@ Policy (see README "Format support"):
 
 from __future__ import annotations
 
+import codecs
 import os
 import re
 from dataclasses import dataclass, field
@@ -43,6 +44,13 @@ _QUOTED_PAIR = re.compile(r'(\w+):\s*"([^"]*)"')
 _BRUKER_XY_KEYS = frozenset({"Id", "Anode", "Wavelength", "Scantype", "TimePerStep"})
 # Bruker exports round intensities to three decimals.
 _BRUKER_XY_ROUNDING = 5.01e-4
+# UTF-32 first: its little-endian mark begins with the one for UTF-16.
+_UNICODE_MARKS = (
+    (codecs.BOM_UTF32_LE, "utf-32"),
+    (codecs.BOM_UTF32_BE, "utf-32"),
+    (codecs.BOM_UTF16_LE, "utf-16"),
+    (codecs.BOM_UTF16_BE, "utf-16"),
+)
 
 
 class XRDFormatError(ValueError):
@@ -221,6 +229,8 @@ def _detect_delimiter(s: str) -> str | None:
 
 
 def _to_float(tok: str) -> float | None:
+    if "_" in tok:  # float() reads 1_000 as a number, which no data file means by it
+        return None
     try:
         return float(tok)
     except ValueError:
@@ -261,7 +271,7 @@ def _suggest_rate_unit(y: np.ndarray, metadata: dict[str, str]) -> str | None:
     t = _to_float(metadata["TimePerStep"])
     if t is None or not 0 < t * _BRUKER_XY_ROUNDING < 0.25:
         return None  # the rounding would hide any difference from whole numbers
-    if validators.non_integer_count(y) == 0:
+    if validators.non_integer_count(y) == 0 or not np.all(np.isfinite(y)):
         return None
     counts = y * t
     return "cps" if np.all(np.abs(counts - np.round(counts)) <= t * _BRUKER_XY_ROUNDING) else None
@@ -274,6 +284,12 @@ def _read_text(path: Path, encoding: str | None) -> tuple[str, str]:
     if size > MAX_FILE_BYTES:
         raise XRDFormatError(f"{path.name}: file is larger than {MAX_FILE_BYTES // 2**20} MiB")
     raw = path.read_bytes()
+    marked = next((enc for mark, enc in _UNICODE_MARKS if raw.startswith(mark)), None)
+    if marked and not encoding:
+        try:
+            return raw.decode(marked), marked
+        except UnicodeDecodeError as exc:
+            raise XRDFormatError(f"{path.name}: damaged {marked} text: {exc}") from exc
     if b"\x00" in raw[:4096]:
         raise XRDFormatError(f"{path.name}: binary content detected — not a delimited text file")
     for enc in [encoding] if encoding else ["utf-8-sig", "cp949", "latin-1"]:

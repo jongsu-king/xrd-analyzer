@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import os
 import posixpath
+import struct
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 from pathlib import Path
+from xml.parsers import expat
 
 import numpy as np
 
@@ -36,6 +39,24 @@ MAX_XML_BYTES = 256 * 1024 * 1024
 _CONTAINER = "Experiment0/DataContainer.xml"
 _XSI_TYPE = "{http://www.w3.org/2001/XMLSchema-instance}type"
 _EXPORT_HINT = "Export the scan as text from the instrument software, or see docs/adapters.md."
+# What a damaged archive can raise. RuntimeError includes encrypted members and unknown methods.
+_ARCHIVE_ERRORS = (zipfile.BadZipFile, zlib.error, struct.error, EOFError, RuntimeError, ValueError)
+
+
+class _HasDoctype(Exception):
+    pass
+
+
+def _found_doctype(*_: object) -> None:
+    raise _HasDoctype
+
+
+def _parse_xml(raw: bytes) -> ET.Element:
+    """Parse XML that has no DTD. Expat sees one in any encoding; a byte search would not."""
+    scanner = expat.ParserCreate()
+    scanner.StartDoctypeDeclHandler = _found_doctype
+    scanner.Parse(raw, True)
+    return ET.fromstring(raw)
 
 
 def _member(z: zipfile.ZipFile, name: str, label: str) -> ET.Element:
@@ -48,13 +69,15 @@ def _member(z: zipfile.ZipFile, name: str, label: str) -> ET.Element:
         raise XRDFormatError(f"{label}: member {name!r} is larger than the size limit")
     try:
         raw = z.read(info)
-    except (zipfile.BadZipFile, OSError, EOFError) as exc:
+    except (*_ARCHIVE_ERRORS, OSError) as exc:
         raise XRDFormatError(f"{label}: archive member {name!r} is corrupted: {exc}") from exc
-    if b"<!DOCTYPE" in raw or b"<!ENTITY" in raw:
-        raise XRDFormatError(f"{label}: member {name!r} declares a DTD, which BRML files do not")
     try:
-        return ET.fromstring(raw)
-    except ET.ParseError as exc:
+        return _parse_xml(raw)
+    except _HasDoctype:
+        raise XRDFormatError(
+            f"{label}: member {name!r} declares a DTD, which BRML files do not"
+        ) from None
+    except (ET.ParseError, expat.ExpatError, LookupError, ValueError) as exc:
         raise XRDFormatError(f"{label}: member {name!r} is not valid XML: {exc}") from exc
 
 
@@ -145,7 +168,7 @@ def _data(route: ET.Element, rec: ET.Element, layout: dict[str, int], label: str
         )
     except ValueError as exc:
         raise XRDFormatError(f"{label}: malformed data row: {exc}") from exc
-    if rows.ndim != 2 or rows.shape[1] <= max(layout.values()):
+    if rows.ndim != 2 or rows.shape[1] <= max(layout.values()) or min(layout.values()) < 0:
         raise XRDFormatError(f"{label}: data rows do not match the declared layout")
     blank = rec.findtext("BlankingValue")
     if blank is not None and np.any(rows[:, layout["counts"]] == float(blank)):
@@ -156,12 +179,12 @@ def _data(route: ET.Element, rec: ET.Element, layout: dict[str, int], label: str
             "has not been checked against real files. " + _EXPORT_HINT
         )
     t = rows[:, layout["MeasuredTime"]]
-    if np.any(t <= 0) or np.ptp(t) > 1e-6 * t.max():
+    if not np.all(np.isfinite(t) & (t > 0)) or np.ptp(t) > 1e-6 * t.max():
         raise UnsupportedFormatError(
             f"{label}: counting time varies across the scan. " + _EXPORT_HINT
         )
     counts = rows[:, layout["counts"]]
-    if np.any(counts < 0) or validators.non_integer_count(counts):
+    if not np.all(np.isfinite(counts) & (counts >= 0)) or validators.non_integer_count(counts):
         raise XRDFormatError(f"{label}: the counter column is not whole non-negative counts")
     return rows
 
@@ -216,7 +239,7 @@ class BrukerBrmlReader:
             raise XRDFormatError(f"{label}: file is larger than {MAX_FILE_BYTES // 2**20} MiB")
         try:
             archive = zipfile.ZipFile(p)
-        except zipfile.BadZipFile as exc:
+        except _ARCHIVE_ERRORS as exc:
             raise XRDFormatError(f"{label}: not a valid BRML (zip) archive: {exc}") from exc
         with archive as z:
             if any(
@@ -241,12 +264,17 @@ class BrukerBrmlReader:
                 f"{label}: expected one originally measured data route. " + _EXPORT_HINT
             )
         route = routes[0]
-        scan = _check_scan(raw, route, label)
-        layout, rec = _columns(route, label)
-        rows = _data(route, rec, layout, label)
-        expected = scan.findtext("MeasurementPoints")
-        if expected is not None and int(expected) != rows.shape[0]:
-            raise XRDFormatError(f"{label}: {rows.shape[0]} data rows, header says {expected}")
+        try:
+            scan = _check_scan(raw, route, label)
+            layout, rec = _columns(route, label)
+            rows = _data(route, rec, layout, label)
+            expected = scan.findtext("MeasurementPoints")
+            if expected is not None and int(expected) != rows.shape[0]:
+                raise XRDFormatError(f"{label}: {rows.shape[0]} data rows, header says {expected}")
+        except XRDFormatError:
+            raise
+        except ValueError as exc:  # a number in the XML that is not one
+            raise XRDFormatError(f"{label}: malformed value in the file: {exc}") from exc
         time_s = float(rows[0, layout["MeasuredTime"]])
         return rows, layout, _metadata(container, raw, scan, version, time_s)
 

@@ -68,7 +68,18 @@ class PlotSettings:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> PlotSettings:
-        known = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
+        """Unknown fields, and fields of the wrong kind as in a damaged file, are left out."""
+        if not isinstance(d, dict):
+            return cls()
+        defaults = cls()
+        known: dict[str, Any] = {}
+        for k, v in d.items():
+            default = getattr(defaults, k, None)
+            if k == "font_size":
+                if isinstance(v, int | float) and not isinstance(v, bool) and 1 <= v <= 200:
+                    known[k] = float(v)
+            elif k in cls.__dataclass_fields__ and type(v) is type(default):
+                known[k] = v
         return cls(**known)
 
 

@@ -230,15 +230,17 @@ def fit_peaks(
             w0 = min(max(c.fwhm_est_deg, 2 * step), width_cap / 2)
             h0 = max(float(np.interp(c.position_deg, xs, ys)) - bg0, 1e-6 * ymax)
             dc = max(w0, 2 * step)
+            # never past the data: a centre there would be extrapolated, not measured
+            c_lo, c_hi = max(c.position_deg - dc, x[0]), min(c.position_deg + dc, x[-1])
             if profile == "pseudo_voigt":
                 p0 += [c.position_deg, h0, w0, 0.5]
-                lb += [c.position_deg - dc, 0.0, 0.5 * step, 0.0]
-                ub += [c.position_deg + dc, 20 * ymax, width_cap, 1.0]
+                lb += [c_lo, 0.0, 0.5 * step, 0.0]
+                ub += [c_hi, 20 * ymax, width_cap, 1.0]
             else:
                 a0, s0, g0 = profiles.voigt_params_from_fwhm(w0, h0)
                 p0 += [c.position_deg, a0, s0, g0]
-                lb += [c.position_deg - dc, 0.0, 0.1 * step, 0.0]
-                ub += [c.position_deg + dc, 20 * ymax * width_cap, width_cap, width_cap]
+                lb += [c_lo, 0.0, 0.1 * step, 0.0]
+                ub += [c_hi, 20 * ymax * width_cap, width_cap, width_cap]
         if nb >= 1:
             p0.append(bg0)
             lb.append(-np.inf)

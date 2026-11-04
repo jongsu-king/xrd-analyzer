@@ -159,7 +159,7 @@ class AnalysisRecipe:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AnalysisRecipe:
-        if data.get("format") != RECIPE_FORMAT:
+        if not isinstance(data, dict) or data.get("format") != RECIPE_FORMAT:
             raise ValueError("not an XRD Analyzer recipe (missing 'format': 'xrd-analyzer-recipe')")
         if data.get("version") != RECIPE_VERSION:
             raise ValueError(f"unsupported recipe version {data.get('version')!r}")

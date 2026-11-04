@@ -12,13 +12,20 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 from scipy import sparse
-from scipy.ndimage import median_filter, uniform_filter1d
+from scipy.ndimage import median_filter, percentile_filter, uniform_filter1d
 from scipy.signal import savgol_filter
 from scipy.sparse.linalg import spsolve
 
 FloatArray = NDArray[np.float64]
 # Points used to estimate the noise floor of ALS and polynomial baselines.
 FLOOR_WINDOW = 161
+# The noise floor may exceed by this factor the lower quartile of its values within this many
+# windows, which stays with the noise beside a peak that fills one whole window.
+FLOOR_QUIET_WINDOWS = 5
+FLOOR_MARGIN = 1.25
+# Baseline parameters count points. Scans sampled more than twice as finely as this are averaged
+# down to about this step for the baseline, so that a setting means the same width in degrees.
+REFERENCE_STEP_DEG = 0.01
 
 
 class ProcessingError(ValueError):
@@ -199,16 +206,48 @@ def savgol(y: FloatArray, window: int, polyorder: int) -> FloatArray:
 # ------------------------------------------------------------------------------ baselines
 
 
+def coarsening_factor(x: FloatArray) -> int:
+    """How many points to average so that a finely sampled scan is near the reference step."""
+    steps = np.diff(x)
+    step = float(np.median(steps)) if steps.size else 0.0
+    return max(1, int(REFERENCE_STEP_DEG / step + 1e-6)) if step > 0 else 1  # 0.01/0.001 ≈ 9.99…
+
+
+def _block_starts(n: int, factor: int) -> NDArray[np.intp]:
+    return np.arange(0, n, factor)
+
+
+def block_means(v: FloatArray, factor: int) -> FloatArray:
+    """Means of consecutive blocks of ``factor`` points; the last block may be shorter."""
+    if factor <= 1:
+        return np.asarray(v, dtype=float)
+    starts = _block_starts(v.size, factor)
+    sizes = np.diff(np.append(starts, v.size))
+    return np.asarray(np.add.reduceat(v, starts) / sizes, dtype=float)
+
+
+def block_any(mask: NDArray[np.bool_], factor: int) -> NDArray[np.bool_]:
+    """Whether any point of each block is set."""
+    if factor <= 1:
+        return np.asarray(mask, dtype=bool)
+    return np.logical_or.reduceat(mask, _block_starts(mask.size, factor))
+
+
 def _noise_floor(residual: FloatArray, window: int) -> FloatArray:
     """Slowly varying offset between noisy data and a lower-envelope baseline.
 
     Lower-envelope estimators follow the bottom of the noise, about 2σ under the mean
-    background. Peaks fill less than half of ``window``, so its median sees only the noise.
+    background. A peak filling less than half of ``window`` leaves its median to the noise. A
+    wider one lifts the median, and that would take the peak into the baseline. The noise changes
+    slowly, so the offset is held near what the quieter stretches close by show.
     """
     n = residual.size
     window = max(3, min(window, n if n % 2 else n - 1))
     floor = np.maximum(median_filter(residual, size=window, mode="nearest"), 0.0)
-    return np.asarray(uniform_filter1d(floor, size=window, mode="nearest"), dtype=float)
+    # reflect: the ends of a lower envelope stay on the data; repeated, they would look quiet
+    quiet = percentile_filter(floor, 25, size=FLOOR_QUIET_WINDOWS * window, mode="reflect")
+    held = np.minimum(floor, FLOOR_MARGIN * quiet)
+    return np.asarray(uniform_filter1d(held, size=window, mode="nearest"), dtype=float)
 
 
 def _odd_extension(y: FloatArray, pad: int) -> FloatArray:

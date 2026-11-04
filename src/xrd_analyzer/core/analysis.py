@@ -21,6 +21,7 @@ import scipy
 from numpy.typing import NDArray
 
 from .. import DISCLAIMER_EN, __version__
+from ..io.validators import MAX_INTENSITY
 from ..models.dataset import XRDPattern, sha256_arrays
 from ..models.recipe import AnalysisRecipe
 from ..models.units import validate_wavelength
@@ -61,6 +62,9 @@ PEAK_SIGNAL_FRACTION = 0.02
 # when σ is unknown the lag-1 autocorrelation of its residuals, in standard deviations.
 POOR_FIT_CHI2 = 3.0
 POOR_FIT_Z = 3.0
+# The baseline climbing more than this fraction of a peak's height under it means it follows the
+# peak. Measured on synthetic scans: about 0.03 goes with 5 % of the area lost.
+BASELINE_RISE_MAX = 0.03
 
 
 class AnalysisError(ValueError):
@@ -270,6 +274,10 @@ def preprocess(
     warnings: list[str] = []
     notes: list[str] = []
     x, y, axis = proc.order_axis(pattern.two_theta_deg, pattern.intensity, pp.duplicate_policy)
+    if y.size and float(np.max(np.abs(y))) > MAX_INTENSITY:
+        raise proc.ProcessingError(
+            f"intensity reaches {float(np.max(np.abs(y))):.3g}, beyond any measured or scaled data"
+        )
     n_avg = axis.n_per_point if axis.n_per_point is not None else np.ones_like(x)
     notes += axis.notes
     if pp.crop_min_deg is not None or pp.crop_max_deg is not None:
@@ -355,15 +363,26 @@ def preprocess(
     if pp.smoothing_enabled:
         smoothed = proc.savgol(y, pp.smoothing_window, pp.smoothing_polyorder)
     base_src = smoothed if smoothed is not None else y
+    factor = proc.coarsening_factor(x)
+    xb, yb = proc.block_means(x, factor), proc.block_means(base_src, factor)
+    if factor > 1 and pp.baseline_method != "none":
+        notes.append(
+            f"baseline computed on means of {factor} points ({factor * axis.median_step_deg:.4g}° "
+            "grid), so that its settings do not depend on how finely the scan was sampled"
+        )
+
+    def full_grid(b: FloatArray) -> FloatArray:
+        return np.interp(x, xb, b) if factor > 1 else b
+
     if pp.baseline_method == "snip":
-        baseline = proc.baseline_snip(base_src, pp.snip_iterations)
+        baseline = full_grid(proc.baseline_snip(yb, pp.snip_iterations))
     elif pp.baseline_method == "als":
-        baseline = proc.baseline_als(base_src, pp.als_lambda, pp.als_p, pp.als_iterations)
+        baseline = full_grid(proc.baseline_als(yb, pp.als_lambda, pp.als_p, pp.als_iterations))
     elif pp.baseline_method == "poly":
-        baseline = proc.baseline_poly(x, base_src, pp.poly_degree, pp.poly_iterations)
+        baseline = full_grid(proc.baseline_poly(xb, yb, pp.poly_degree, pp.poly_iterations))
     elif pp.baseline_method == "masked":
         # provisional SNIP baseline → provisional peaks → Whittaker through non-peak points
-        prov = proc.baseline_snip(base_src, pp.snip_iterations)
+        prov = full_grid(proc.baseline_snip(yb, pp.snip_iterations))
         ps = recipe.peaks
         cands, _ = detect_peaks(
             x,
@@ -380,7 +399,9 @@ def preprocess(
         centers = [c.position_deg for c in cands] + [m[0] for m in manual]
         fwhms = [c.fwhm_est_deg for c in cands] + [m[1] for m in manual]
         mask = proc.peak_mask(x, centers, fwhms, pp.mask_fwhm_factor)
-        baseline = proc.baseline_masked_whittaker(base_src, mask, pp.als_lambda)
+        baseline = full_grid(
+            proc.baseline_masked_whittaker(yb, proc.block_any(mask, factor), pp.als_lambda)
+        )
         notes.append(
             f"masked baseline: {len(centers)} provisional peak region(s) excluded "
             f"(±{pp.mask_fwhm_factor}×FWHM, {mask.mean():.0%} of points); amorphous/broad "
@@ -399,6 +420,19 @@ def preprocess(
         warnings,
         notes,
     )
+
+
+def baseline_rise(p: Any, x: FloatArray, baseline: FloatArray) -> float:
+    """How far the baseline climbs under a peak, as a fraction of the height left above it.
+
+    A baseline that follows a peak takes part of it away: height, area and FWHM then come out too
+    small, and a Scherrer size too large. A background sloping or bending over the same range
+    gives far less than a peak does.
+    """
+    c, w = p.center_deg, p.fwhm_deg
+    top = float(np.interp(c, x, baseline))
+    wings = 0.5 * float(np.interp(c - 2.0 * w, x, baseline) + np.interp(c + 2.0 * w, x, baseline))
+    return (top - wings) / p.height if p.height > 0 else 0.0
 
 
 def poorly_fitted(p: Any, fit: FitResult, x: FloatArray, sigma: FloatArray | None) -> bool:
@@ -595,6 +629,18 @@ def run_analysis(
                         f"peak at {p.center_deg:.2f}°: the profile does not describe it "
                         "(shape error exceeds the reported σ)"
                     )
+    absorbed = [
+        p for p in fit.peaks if p.ok and baseline_rise(p, x, processed.baseline) > BASELINE_RISE_MAX
+    ]
+    for p in absorbed:
+        p.flags.append("baseline_absorbs_peak")
+    if absorbed:
+        where = ", ".join(f"{p.center_deg:.2f}°" for p in absorbed[:5])
+        warnings.append(
+            f"the baseline follows the peak(s) at {where}: height, area and FWHM come out too "
+            "small and Scherrer sizes too large. Use the masked baseline or a wider baseline "
+            "setting for broad peaks"
+        )
     if doublet is not None and any(p.ok for p in fit.peaks):
         notes.append(
             "Kα1/Kα2 doublet fit: height and area describe the Kα1 component only; the area of "

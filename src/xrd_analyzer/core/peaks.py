@@ -16,7 +16,7 @@ from numpy.typing import NDArray
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks, peak_widths
 
-from .preprocessing import noise_sigma
+from .preprocessing import block_means, coarsening_factor, noise_sigma
 from .profiles import kalpha2_position
 
 FloatArray = NDArray[np.float64]
@@ -164,6 +164,24 @@ def detect_peaks(
         hits += _smoothed_hits(
             x, source, sigma, prominence_sigma, floor, distance, step, kernel, min_distance_deg
         )
+    # The kernels above count steps. A finely sampled scan needs the same widths in degrees too.
+    factor = coarsening_factor(x)
+    if factor > 1:
+        xb, source_b = block_means(x, factor), block_means(source, factor)
+        sigma_b = np.sqrt(block_means(sigma**2, factor) / factor)
+        step_b = factor * step
+        for kernel in SEARCH_FWHM_STEPS:
+            hits += _smoothed_hits(
+                xb,
+                source_b,
+                sigma_b,
+                prominence_sigma,
+                floor,
+                max(1, round(min_distance_deg / step_b)),
+                step_b,
+                kernel,
+                min_distance_deg,
+            )
 
     # FWHM below 1.5 sampling steps cannot be a resolvable diffraction peak (noise spike)
     def usable(h: _Hit) -> bool:

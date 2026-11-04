@@ -14,6 +14,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QThread, Signal
 
+from ..core.analysis import AnalysisError
 from ..core.fit import AnalysisCancelled
 
 
@@ -52,6 +53,8 @@ class Worker(QObject):
             out = self._job(progress=lambda f, m: self.progress.emit(f, m), cancel=self._checkpoint)
         except AnalysisCancelled:
             self.cancelled.emit()
+        except AnalysisError as exc:  # says what to change; a traceback would only hide that
+            self.failed.emit(str(exc))
         except Exception as exc:  # report every failure to the GUI instead of crashing
             self.failed.emit(f"{type(exc).__name__}: {exc}\n{traceback.format_exc(limit=3)}")
         else:

@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zipfile
 
 import numpy as np
 import pytest
@@ -475,7 +476,11 @@ def opju_opens_with():
 
     classes = r"Software\Classes"
     root = winreg.HKEY_CURRENT_USER
-    if subprocess.run("assoc .opju", shell=True, capture_output=True, check=False).returncode == 0:
+    try:
+        winreg.CloseKey(winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, ".opju"))
+    except OSError:
+        pass
+    else:
         pytest.skip(".opju is already registered on this machine")
 
     def register(command):
@@ -504,6 +509,31 @@ def test_launcher_uses_the_program_registered_for_opju(result, tmp_path, opju_op
 
 
 @windows
+def test_launcher_copes_with_brackets_and_no_quotes_in_the_registered_command(
+    result, tmp_path, opju_opens_with
+):
+    b = write_origin_bundle([result], tmp_path / "out")
+    exe = _fake_program(tmp_path / "x(86)")
+    opju_opens_with(f"{exe} %1")
+    done = _run(b.launcher, _env(tmp_path, XRD_ORIGIN_DRYRUN="1"))
+    assert done.returncode == 0, done.stdout
+    assert done.stdout.startswith(f'"{exe}" -rs ')
+
+
+@windows
+def test_launcher_searches_on_when_the_registered_program_is_gone(
+    result, tmp_path, opju_opens_with
+):
+    b = write_origin_bundle([result], tmp_path / "out")
+    opju_opens_with(f'"{tmp_path / "gone" / "Origin64.exe"}" "%1"')
+    programs = tmp_path / "Programs"
+    _fake_program(programs / "OriginLab" / "Origin2024")
+    done = _run(b.launcher, _env(tmp_path, programs, XRD_ORIGIN_DRYRUN="1"))
+    assert done.returncode == 0, done.stdout
+    assert "Origin2024" in done.stdout
+
+
+@windows
 def test_launcher_prefers_origin_beside_a_helper_program(result, tmp_path, opju_opens_with):
     b = write_origin_bundle([result], tmp_path / "out")
     exe = _fake_program(tmp_path / "Origin")
@@ -526,28 +556,46 @@ def test_launcher_passes_over_a_registered_viewer(result, tmp_path, opju_opens_w
     assert "Origin2024" in done.stdout and "Viewer" not in done.stdout
 
 
+def _recording_program(folder, record):
+    """A real program, as Origin is: start runs a batch file in cmd /k, which mangles quotes.
+
+    The launcher pip uses for console scripts runs the zip appended to it with this Python.
+    """
+    from pip._vendor import distlib
+
+    stub = os.path.join(os.path.dirname(distlib.__file__), "t64.exe")
+    if not os.path.exists(stub):
+        pytest.skip("pip has no launcher program to build a stand-in from")
+    script = io.BytesIO()
+    with zipfile.ZipFile(script, "w") as z:
+        z.writestr(
+            "__main__.py",
+            "import ctypes, json\n"
+            "line = ctypes.windll.kernel32.GetCommandLineW\n"
+            "line.restype = ctypes.c_wchar_p\n"
+            f"json.dump(line(), open({str(record)!r}, 'w', encoding='utf-8'))\n",
+        )
+    folder.mkdir(parents=True, exist_ok=True)
+    exe = folder / "Origin64.exe"
+    with open(stub, "rb") as fh:
+        program = fh.read()
+    exe.write_bytes(program + f'#!"{sys.executable}"\r\n'.encode() + script.getvalue())
+    return exe
+
+
 @windows
 def test_launcher_really_starts_the_program_with_korean_and_spaces(result, tmp_path):
     b = write_origin_bundle([result], tmp_path / "XRD 결과 (1)")
     record = tmp_path / "args.json"
-    recorder = tmp_path / "record.py"
-    recorder.write_text(  # the raw command line: argv would have lost the quotes Origin sees
-        "import ctypes, json\n"
-        "line = ctypes.windll.kernel32.GetCommandLineW\n"
-        "line.restype = ctypes.c_wchar_p\n"
-        f"json.dump(line(), open({str(record)!r}, 'w', encoding='utf-8'))\n",
-        encoding="utf-8",
-    )
-    # start runs a batch file in cmd /k, whose window stays open unless the file ends with exit
-    fake = tmp_path / "fake origin.cmd"
-    fake.write_text(f'@"{sys.executable}" "{recorder}" %*\r\n@exit\r\n', encoding="ascii")
-    done = _run(b.launcher, _env(tmp_path, XRD_ORIGIN_EXE=str(fake)))
+    exe = _recording_program(tmp_path / "Program (x86)", record)
+    done = _run(b.launcher, _env(tmp_path, XRD_ORIGIN_EXE=str(exe)))
     assert done.returncode == 0, done.stdout
     deadline = time.time() + 30
     while not record.exists() and time.time() < deadline:
         time.sleep(0.2)
+    assert record.exists(), "the program was not started"
     line = json.loads(record.read_text(encoding="utf-8"))
-    assert " -rs run.section(" in line
+    assert " -rs run.section(" in line, line
     assert os.path.samefile(_section_paths(line), b.folder)
 
 

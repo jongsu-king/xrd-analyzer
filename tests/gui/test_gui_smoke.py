@@ -1,6 +1,8 @@
 """Offscreen GUI smoke tests (QT_QPA_PLATFORM=offscreen). Real-display checks are manual."""
 
+import json
 import os
+import random
 
 import pytest
 
@@ -242,3 +244,63 @@ def test_origin_folder_holds_every_checked_analysed_dataset(win, qtbot, tmp_path
     bundle = win.export_origin_to(str(tmp_path))
     assert (bundle.folder / "pattern_02.csv").is_file()
     assert bundle.project.name == "xrd_analysis.opju"
+
+
+def test_damaged_projects_open_without_an_exception(win, qtbot, tmp_path):
+    """pytest-qt fails this test if a slot or a paint event raises, as well as on a direct raise."""
+    win.open_example("si_like")
+    win.apply_and_run()
+    _wait(qtbot, win)
+    good = tmp_path / "good.xrdproj.json"
+    win.save_project_to(str(good))
+    seed = json.loads(good.read_text(encoding="utf-8"))
+    settings = seed["plot_settings"]
+    rng = random.Random(5)
+    junk = (None, 0, -1, 1.5, "", "x", [], {}, [1], {"a": 1}, True, 10**30, 1e308)
+    path = tmp_path / "p.xrdproj.json"
+    fields = [*settings, "active"]
+    for _ in range(30):
+        data = json.loads(json.dumps(seed))
+        for _ in range(rng.choice((1, 2, 3))):
+            field = rng.choice(fields)
+            value = rng.choice(junk)
+            if field == "active":
+                data["active"] = value
+            else:
+                data["plot_settings"][field] = value
+        if rng.random() < 0.2:
+            data["plot_settings"] = rng.choice(junk)
+        path.write_text(json.dumps(data), encoding="utf-8")
+        assert win.open_project_from(str(path)) == []
+        qtbot.wait(1)
+        win.apply_and_run()
+        _wait(qtbot, win)
+    assert win.table.rowCount() == 6
+
+
+def test_a_project_with_an_invalid_recipe_reports_it_and_opens_the_rest(win, tmp_path):
+    win.open_example("si_like")
+    win.open_example("nano_fcc")
+    good = tmp_path / "good.xrdproj.json"
+    win.save_project_to(str(good))
+    data = json.loads(good.read_text(encoding="utf-8"))
+    data["entries"][0]["recipe"]["preprocess"]["snip_iterations"] = "many"
+    good.write_text(json.dumps(data), encoding="utf-8")
+    before = win.data_list.count()
+    problems = win.open_project_from(str(good))
+    assert len(problems) == 1 and "invalid recipe" in problems[0]
+    assert win.data_list.count() == before + 1
+
+
+def test_a_known_problem_is_reported_without_a_traceback(win, qtbot, tmp_path):
+    path = tmp_path / "scan.csv"
+    path.write_text(
+        "2theta_deg,intensity_counts\n"
+        + "\n".join(f"{20 + i * 0.1:.1f},{i % 7}" for i in range(50)),
+        encoding="utf-8",
+    )
+    win.open_file(str(path))
+    win.apply_and_run()
+    _wait(qtbot, win)
+    log = win.log_view.toPlainText()
+    assert "wavelength" in log and "Traceback" not in log and 'File "' not in log
