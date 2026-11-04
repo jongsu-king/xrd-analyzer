@@ -32,12 +32,17 @@ SCRIPT_NAME = "xrd_origin.ogs"
 LAUNCHER_NAME = "open_in_origin.bat"
 LINK_NAME = "open_in_origin.xrdorigin"
 README_NAME = "README.txt"
+LOG_NAME = "xrd_origin_log.txt"
 EXIT_ORIGIN_NOT_FOUND = 9
+EXIT_ORIGIN_NOT_STARTED = 10
+MAX_LABEL = 100
 
 # Origin's own colour list; the values are arbitrary apart from staying readable.
 _BLACK, _RED, _BLUE = 1, 2, 4
 _OVERLAY_COLORS = (1, 2, 3, 4, 6, 8, 9, 10, 11, 12, 14, 15)
 _PLOT_LINE, _PLOT_SCATTER = 200, 201
+_ENTRY = re.compile(r'newbook name:="([A-Za-z0-9 ._+\-]+) pattern" result:=bk(\d+)\$;')
+_PROJECT = re.compile(r'string project\$ = here\$\+"\\([A-Za-z0-9._+\-]+\.opju)";')
 
 _IMPORT_OPTIONS = (
     "options.FirstMode:=0 options.HeaderLines.AutoSubHeaderLines:=0 "
@@ -45,18 +50,23 @@ _IMPORT_OPTIONS = (
     "options.HeaderLines.Units:=2 options.names.FNameToSht:=0 options.names.FNameToBk:=0 "
     "options.names.FNameToBkComm:=0"
 )
+_DEVICE_NAME = re.compile(r"con|prn|aux|nul|com\d|lpt\d", re.IGNORECASE)
 _ASCII_WORDS = {"σ": "sigma", "χ²": "chi2", "√": "sqrt", "×": "x", "≥": ">=", "≤": "<=", "°": "deg"}
 
 _LAUNCHER = rf"""@echo off
 rem Written by XRD Analyzer. Starts Origin, which builds the workbooks and graphs from the CSV
 rem files in this folder and saves them here as an Origin project (.opju).
 setlocal
-set "HERE=%~dp0"
+rem The short form of the folder, on disks that keep one, avoids spaces in what Origin parses.
+set "HERE=%~sdp0"
 set "HERE=%HERE:~0,-1%"
-set "ORIGIN=%XRD_ORIGIN_EXE%"
-if defined ORIGIN goto found
+set "ORIGIN="
+if not defined XRD_ORIGIN_EXE goto association
+set "ORIGIN=%XRD_ORIGIN_EXE:"=%"
+goto found
 
-rem The program Windows opens .opju files with.
+:association
+rem The program Windows opens .opju files with, or the Origin beside it if that is a helper.
 set "OPJU_TYPE="
 for /f "tokens=1,* delims==" %%A in ('assoc .opju 2^>nul') do set "OPJU_TYPE=%%B"
 if not defined OPJU_TYPE goto search
@@ -64,14 +74,19 @@ set "OPEN_CMD="
 for /f "tokens=1,* delims==" %%A in ('ftype %OPJU_TYPE% 2^>nul') do set "OPEN_CMD=%%B"
 if not defined OPEN_CMD goto search
 for %%A in (%OPEN_CMD%) do (
-  set "ORIGIN=%%~A"
-  goto found
+  for %%E in ("%%~dpAOrigin*64.exe") do call :consider "%%~E"
+  if not defined ORIGIN call :consider "%%~A"
+  goto associated
 )
+:associated
+if defined ORIGIN goto found
 
 :search
 rem The usual installation folders. The last match is the newest version.
-for /d %%D in ("%ProgramFiles%\OriginLab\Origin*") do (
-  for %%E in ("%%D\Origin*64.exe") do set "ORIGIN=%%~E"
+for %%P in ("%ProgramW6432%" "%ProgramFiles%") do (
+  for /d %%D in ("%%~P\OriginLab\Origin*") do (
+    for %%E in ("%%D\Origin*64.exe") do call :consider "%%~E"
+  )
 )
 if defined ORIGIN goto found
 goto notfound
@@ -80,11 +95,17 @@ goto notfound
 if not exist "%ORIGIN%" goto notfound
 if defined XRD_ORIGIN_DRYRUN goto dryrun
 start "" "%ORIGIN%" -rs run.section("%HERE%\{SCRIPT_NAME}", Main, "%HERE%")
+if errorlevel 1 goto notstarted
 exit /b 0
 
 :dryrun
 echo "%ORIGIN%" -rs run.section("%HERE%\{SCRIPT_NAME}", Main, "%HERE%")
 exit /b 0
+
+:notstarted
+echo Origin could not be started: %ORIGIN%
+if not defined XRD_NO_PAUSE pause
+exit /b {EXIT_ORIGIN_NOT_STARTED}
 
 :notfound
 echo Origin was not found on this computer.
@@ -93,6 +114,14 @@ echo Origin's Script Window:
 echo run.section("%HERE%\{SCRIPT_NAME}", Main, "%HERE%");
 if not defined XRD_NO_PAUSE pause
 exit /b {EXIT_ORIGIN_NOT_FOUND}
+
+:consider
+rem %1 is a candidate. Origin Viewer cannot run scripts, so it does not count.
+if not exist "%~1" exit /b 0
+set "CANDIDATE=%~n1"
+if not "%CANDIDATE:viewer=%"=="%CANDIDATE%" exit /b 0
+set "ORIGIN=%~1"
+exit /b 0
 """
 
 _README = f"""XRD Analyzer: results for OriginLab Origin
@@ -107,8 +136,10 @@ pattern_NN.csv and peaks_NN.csv can also be imported into any other program.
 
 With a Kalpha1/Kalpha2 doublet fit, Height and Area in the peak table are Kalpha1 only.
 
-Origin 쪽 실행은 아직 실제 Origin으로 시험하지 않았습니다. 문제가 있으면 Origin Script Window에
-표시된 오류를 알려 주세요.
+If a step fails in Origin, the others still run, and {LOG_NAME} in this folder says which one.
+
+Origin 쪽 실행은 아직 실제 Origin으로 시험하지 않았습니다. 문제가 있으면 이 폴더의 {LOG_NAME}
+내용과 Origin Script Window에 표시된 오류를 알려 주세요.
 """
 
 
@@ -133,8 +164,16 @@ def _ascii(text: str) -> str:
 
 def _label(text: Any, fallback: str) -> str:
     """A name safe inside a LabTalk string, where %, $ and quotes have meanings of their own."""
-    cleaned = re.sub(r"[^A-Za-z0-9 ._+\-]", "_", str(text or "")).strip(" _")
+    cleaned = re.sub(r"[^A-Za-z0-9 ._+\-]", "_", str(text or ""))[:MAX_LABEL].strip(" _")
     return cleaned if re.search(r"[A-Za-z0-9]", cleaned) else fallback
+
+
+def _project_file(stem: str) -> str:
+    """A file name Windows accepts, which rules out CON, NUL and the like and a trailing dot."""
+    name = re.sub(r"[ +]+", "_", stem).strip("._")
+    if _DEVICE_NAME.fullmatch(name.split(".")[0]):
+        name = f"xrd_{name}"
+    return f"{name}.opju"
 
 
 def _cell(value: Any) -> str:
@@ -225,54 +264,100 @@ def _write_peaks(result: AnalysisResult, path: Path) -> bool:
     return True
 
 
+def _guarded(step: str, body: Sequence[str]) -> list[str]:
+    """``body`` in braces. LabTalk skips to the closing brace on an error and carries on from it."""
+    return [
+        "done = 0;",
+        "{",
+        f'  step$ = "{step}";',
+        *(f"  {line}" for line in body),
+        "  done = 1;",
+        "}",
+        'if (done == 0) { failures = failures + 1; type "FAILED: %(step$)"; }',
+    ]
+
+
+def _import(book: str, label: str, table: str) -> list[str]:
+    return [
+        f'newbook name:="{label}" result:={book}$;',
+        f'table$ = here$+"\\{table}";',
+        f"impCSV fname:=table$ {_IMPORT_OPTIONS};",
+    ]
+
+
 def _script(entries: Sequence[tuple[str, str, str | None]], project_file: str) -> str:
+    # Variables declared inside braces end with them, so these come first.
     lines = [
         "// Written by XRD Analyzer. Builds an Origin project from the CSV files in this folder.",
         f"// Started by {LAUNCHER_NAME}, or in the Script Window with:",
         f'//   run.section("<this folder>\\{SCRIPT_NAME}", Main, "<this folder>");',
         "[Main]",
         'string here$ = "%1";',
+        'string step$ = "start";',
+        "string table$;",
+        f'string logfile$ = here$+"\\{LOG_NAME}";',
+        f'string project$ = here$+"\\{project_file}";',
+        "int done = 0;",
+        "int failures = 0;",
+        "{",
+        '  type -gbe "%(logfile$)";',
+        "}",
+        'type "XRD Analyzer: building the project";',
     ]
-    for i, (label, pattern, peaks) in enumerate(entries, 1):
-        lines += [
-            f'newbook name:="{label} pattern" result:=bk{i}$;',
-            f'impCSV fname:=here$+"\\{pattern}" {_IMPORT_OPTIONS};',
-        ]
+    for i, (_, _, peaks) in enumerate(entries, 1):
+        lines.append(f"string bk{i}$;")
         if peaks is not None:
-            lines += [
-                f'newbook name:="{label} peaks" result:=pk{i}$;',
-                f'impCSV fname:=here$+"\\{peaks}" {_IMPORT_OPTIONS};',
-            ]
-        lines += [
+            lines.append(f"string pk{i}$;")
+    for i, (label, pattern, peaks) in enumerate(entries, 1):
+        lines += _guarded(
+            f"scan {i}, import {pattern}", _import(f"bk{i}", f"{label} pattern", pattern)
+        )
+        if peaks is not None:
+            lines += _guarded(
+                f"scan {i}, import {peaks}", _import(f"pk{i}", f"{label} peaks", peaks)
+            )
+        # Curves first: without the peak table, the graph still has them and a legend.
+        graph = [
             "win -t Plot;",
             f'page.longname$ = "{label}";',
             f"plotxy [bk{i}$]1!(1,2) plot:={_PLOT_LINE} rescale:=1 color:={_BLACK} ogl:=!1;",
             f"plotxy [bk{i}$]1!(1,3) plot:={_PLOT_LINE} rescale:=1 color:={_BLUE} ogl:=!1;",
+            f"plotxy [bk{i}$]1!(1,5) plot:={_PLOT_LINE} rescale:=1 color:={_RED} ogl:=!1 "
+            "legend:=1;",
         ]
-        fit_line = f"plotxy [bk{i}$]1!(1,5) plot:={_PLOT_LINE} rescale:=1 color:={_RED} ogl:=!1"
-        if peaks is None:
-            lines.append(f"{fit_line} legend:=1;")
-        else:
-            lines += [
-                f"{fit_line};",
+        if peaks is not None:
+            graph.append(
                 f"plotxy [pk{i}$]1!(1,{_PEAK_TOP_COLUMN}) plot:={_PLOT_SCATTER} rescale:=1 "
-                f"color:={_RED} ogl:=!1 legend:=1;",
-            ]
+                f"color:={_RED} ogl:=!1 legend:=1;"
+            )
+        lines += _guarded(f"scan {i}, graph", graph)
     if len(entries) > 1:
-        lines += ["win -t Plot;", 'page.longname$ = "All scans, net intensity";']
+        lines += _guarded(
+            "overlay, new graph", ["win -t Plot;", 'page.longname$ = "All scans, net intensity";']
+        )
         for i, _ in enumerate(entries, 1):
             color = _OVERLAY_COLORS[(i - 1) % len(_OVERLAY_COLORS)]
-            end = " legend:=1" if i == len(entries) else ""
-            lines.append(
-                f"plotxy [bk{i}$]1!(1,4) plot:={_PLOT_LINE} rescale:=1 color:={color} ogl:=!1{end};"
+            lines += _guarded(
+                f"overlay, scan {i}",
+                [
+                    f"plotxy [bk{i}$]1!(1,4) plot:={_PLOT_LINE} rescale:=1 color:={color} "
+                    "ogl:=!1 legend:=1;"
+                ],
             )
     # Last, so that the workbooks and graphs are there even if saving fails.
+    lines += _guarded(
+        "save the project",
+        ['save -DIX "%(project$)";', f'type "XRD Analyzer: project saved as {project_file}";'],
+    )
     lines += [
-        f'string project$ = here$+"\\{project_file}";',
-        'save -DIX "%(project$)";',
-        'type "XRD Analyzer: project saved as %(project$)";',
+        f'if (failures > 0) type -a "XRD Analyzer: $(failures) step(s) failed, see {LOG_NAME}";',
+        "type -ge;",
     ]
     return "\r\n".join(lines) + "\r\n"
+
+
+def _launcher_bytes() -> bytes:
+    return _LAUNCHER.replace("\n", "\r\n").encode("ascii")
 
 
 def write_origin_bundle(
@@ -283,6 +368,9 @@ def write_origin_bundle(
         raise ValueError("nothing analysed yet")
     d = Path(folder)
     d.mkdir(parents=True, exist_ok=True)
+    if (d / LAUNCHER_NAME).is_file():  # tables from an earlier export would look like results
+        for old in (*d.glob("pattern_[0-9]*.csv"), *d.glob("peaks_[0-9]*.csv")):
+            old.unlink()
     entries: list[tuple[str, str, str | None]] = []
     for i, result in enumerate(results, 1):
         label = _label(result.dataset.get("name"), f"Dataset {i}")
@@ -290,10 +378,10 @@ def write_origin_bundle(
         _write_pattern(result, d / pattern)
         entries.append((label, pattern, peaks if _write_peaks(result, d / peaks) else None))
     stem = entries[0][0] if len(entries) == 1 else "xrd_analysis"
-    project_file = re.sub(r"[ +]+", "_", stem) + ".opju"
+    project_file = _project_file(stem)
     script, launcher, link = d / SCRIPT_NAME, d / LAUNCHER_NAME, d / LINK_NAME
     script.write_bytes(_script(entries, project_file).encode("ascii"))
-    launcher.write_bytes(_LAUNCHER.replace("\n", "\r\n").encode("ascii"))
+    launcher.write_bytes(_launcher_bytes())
     link.write_bytes(
         b"XRD Analyzer folder for Origin. Double-click to open it in Origin, or run "
         + LAUNCHER_NAME.encode("ascii")
@@ -303,11 +391,44 @@ def write_origin_bundle(
     return OriginBundle(d, launcher, script, link, d / project_file)
 
 
+def _is_our_script(raw: bytes) -> bool:
+    """Is this byte for byte what ``_script`` writes? Only safe names are read back from it."""
+    try:
+        text = raw.decode("ascii")
+    except UnicodeDecodeError:
+        return False
+    entries: list[tuple[str, str, str | None]] = []
+    for m in _ENTRY.finditer(text):
+        i = int(m[2])
+        peaks = f"peaks_{i:02d}.csv" if f"result:=pk{i}$;" in text else None
+        entries.append((m[1], f"pattern_{i:02d}.csv", peaks))
+    project = _PROJECT.search(text)
+    if not entries or project is None:
+        return False
+    return _script(entries, project[1]).encode("ascii") == raw
+
+
 def _launcher_for(path: str | os.PathLike[str]) -> Path:
+    """The launcher of a bundle, if it is safe to run.
+
+    A double-clicked .xrdorigin file runs what lies beside it, and unlike a downloaded .bat it gets
+    no warning from Windows. So only files this version writes itself are run.
+    """
     p = Path(path)
     launcher = (p if p.is_dir() else p.parent) / LAUNCHER_NAME
     if not launcher.is_file():
         raise OriginUnavailable(f"{launcher} not found: this is not an XRD Analyzer Origin folder")
+    script = launcher.parent / SCRIPT_NAME
+    if (
+        launcher.read_bytes() != _launcher_bytes()
+        or not script.is_file()
+        or not _is_our_script(script.read_bytes())
+    ):
+        raise OriginUnavailable(
+            f"{launcher.parent} was not written by this version of XRD Analyzer, so it was not "
+            f"started. Export the results again, or run {LAUNCHER_NAME} yourself if you trust "
+            "this folder."
+        )
     if sys.platform != "win32":
         raise OriginUnavailable(
             f"Origin runs on Windows only. Copy {launcher.parent} to the Windows PC and run "
@@ -326,13 +447,21 @@ def start_origin(path: str | os.PathLike[str]) -> None:
 def run_launcher(path: str | os.PathLike[str]) -> int:
     """Run a bundle's launcher and return its exit code (9 when Origin is not found)."""
     launcher = _launcher_for(path)
-    return subprocess.run([str(launcher)], cwd=launcher.parent, check=False).returncode
+    shell = os.environ.get("COMSPEC", "cmd.exe")
+    folder = launcher.parent
+    if str(folder.resolve()).startswith("\\\\"):  # cmd cannot start in a network folder
+        command = f'"{shell}" /d /s /c ""{launcher}""'
+        return subprocess.run(command, check=False).returncode
+    # By its bare name from its own folder: cmd would parse a full path, and & in it ends a command.
+    return subprocess.run([shell, "/d", "/c", LAUNCHER_NAME], cwd=folder, check=False).returncode
 
 
 __all__ = [
     "EXIT_ORIGIN_NOT_FOUND",
+    "EXIT_ORIGIN_NOT_STARTED",
     "LAUNCHER_NAME",
     "LINK_NAME",
+    "LOG_NAME",
     "SCRIPT_NAME",
     "OriginBundle",
     "OriginUnavailable",
