@@ -5,6 +5,9 @@ Fixes from the first test on real instrument files (four scans, Bruker D2 PHASER
 
 **Results change for this release.** More weak peaks are found, and baselines sit higher.
 
+- **A rare crash at the end of an analysis is fixed.** The worker thread and the GUI could both
+  delete the finished worker, which ended the program with a segmentation fault. Every earlier
+  version can do this.
 - **Import dialog no longer defaults the intensity unit to counts.** Count rates accepted as
   shown lost most peaks without a warning (7 → 2 on a real scan). No unit is pre-selected
   unless the file points to one, and `counts` is unavailable for fractional values.

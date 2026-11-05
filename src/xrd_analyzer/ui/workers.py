@@ -63,12 +63,15 @@ class Worker(QObject):
 
 def make_worker(parent: QObject, job: Callable[..., Any]) -> tuple[QThread, Worker]:
     """Create (but do NOT start) a worker thread. The caller connects its receivers first and
-    then calls ``thread.start()``, so no terminal signal can be emitted before it is heard."""
+    then calls ``thread.start()``, so no terminal signal can be emitted before it is heard.
+
+    Python owns the worker, so its thread must not delete it (``deleteLater`` on ``finished``):
+    that races the caller dropping its reference and crashes. The caller waits for the thread
+    to end before dropping the worker."""
     thread = QThread(parent)
     worker = Worker(job)
     worker.moveToThread(thread)
     thread.started.connect(worker.run)
     for sig in (worker.finished, worker.failed, worker.cancelled):
         sig.connect(thread.quit)
-    thread.finished.connect(worker.deleteLater)
     return thread, worker

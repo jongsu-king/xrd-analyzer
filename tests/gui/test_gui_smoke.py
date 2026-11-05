@@ -10,10 +10,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 pytestmark = pytest.mark.gui
 
+import shiboken6  # noqa: E402
+from PySide6.QtCore import QThread  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from xrd_analyzer.io import ReadOptions  # noqa: E402
 from xrd_analyzer.ui.main_window import MainWindow  # noqa: E402
+from xrd_analyzer.ui.workers import make_worker  # noqa: E402
 
 
 @pytest.fixture
@@ -244,6 +247,23 @@ def test_origin_folder_holds_every_checked_analysed_dataset(win, qtbot, tmp_path
     bundle = win.export_origin_to(str(tmp_path))
     assert (bundle.folder / "pattern_02.csv").is_file()
     assert bundle.project.name == "xrd_analysis.opju"
+
+
+def test_the_worker_thread_does_not_delete_the_worker(win, qtbot):
+    """Its thread deleting it raced the GUI dropping its reference: a rare segfault in the app."""
+    thread, worker = make_worker(win, lambda progress, cancel: 1)
+    with qtbot.waitSignal(thread.finished, timeout=30000):
+        thread.start()
+    assert thread.wait(30000)
+    assert shiboken6.isValid(worker)
+
+
+def test_repeated_runs_leave_no_thread_behind(win, qtbot):
+    before = len(win.findChildren(QThread))
+    for _ in range(100):
+        win._start(lambda progress, cancel: 1, lambda out: None)
+        _wait(qtbot, win)
+    qtbot.waitUntil(lambda: len(win.findChildren(QThread)) <= before, timeout=30000)
 
 
 def test_damaged_projects_open_without_an_exception(win, qtbot, tmp_path):

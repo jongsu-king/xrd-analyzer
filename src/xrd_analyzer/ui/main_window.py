@@ -630,6 +630,10 @@ class MainWindow(QMainWindow):
         self.log("Analysis cancelled")
 
     def _on_thread_finished(self) -> None:
+        # finished is emitted as the thread ends, so this wait is brief and never blocks on an
+        # analysis. Only then is it safe to drop the worker, which deletes it.
+        self.thread.wait()
+        self.thread.deleteLater()
         self.worker = None
         self.thread = None
         self._set_busy(False)
