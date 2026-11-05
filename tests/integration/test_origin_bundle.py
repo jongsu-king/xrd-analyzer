@@ -572,6 +572,7 @@ def _recording_program(folder, record):
     """A real program, as Origin is: start runs a batch file in cmd /k, which mangles quotes.
 
     The launcher pip uses for console scripts runs the zip appended to it with this Python.
+    It runs detached, so the record appears only when whole: a test could read it empty otherwise.
     """
     from pip._vendor import distlib
 
@@ -582,10 +583,13 @@ def _recording_program(folder, record):
     with zipfile.ZipFile(script, "w") as z:
         z.writestr(
             "__main__.py",
-            "import ctypes, json\n"
+            "import ctypes, json, os\n"
             "line = ctypes.windll.kernel32.GetCommandLineW\n"
             "line.restype = ctypes.c_wchar_p\n"
-            f"json.dump(line(), open({str(record)!r}, 'w', encoding='utf-8'))\n",
+            f"record = {str(record)!r}\n"
+            "with open(record + '.tmp', 'w', encoding='utf-8') as fh:\n"
+            "    json.dump(line(), fh)\n"
+            "os.replace(record + '.tmp', record)\n",
         )
     folder.mkdir(parents=True, exist_ok=True)
     exe = folder / "Origin64.exe"
