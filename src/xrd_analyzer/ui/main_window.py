@@ -41,7 +41,7 @@ from ..core.analysis import AnalysisResult, batch_peak_statistics, run_analysis,
 from ..core.reference import ReferencePattern, load_reference_csv, reference_from_cubic
 from ..core.synthetic import EXAMPLES, make_example
 from ..io import AxisConfirmationRequired, ReadOptions, XRDFormatError, probe_file, read_pattern
-from ..models.dataset import XRDPattern
+from ..models.dataset import FORMAT_STATUS_TEXT, XRDPattern
 from ..models.recipe import AnalysisRecipe
 from ..project import (
     Project,
@@ -54,6 +54,7 @@ from ..project import (
 )
 from ..reports.exports import export_all
 from ..reports.figures import PlotSettings, draw_overlay, draw_result, draw_wh, save_figure
+from ..reports.origin import OriginBundle, OriginUnavailable, start_origin, write_origin_bundle
 from .dialogs import CubicReferenceDialog, ImportDialog, PlotSettingsDialog
 from .i18n import Translator
 from .params import ParamPanel
@@ -61,7 +62,7 @@ from .plots import PlotPanel
 from .theme import apply_theme
 from .workers import Worker, make_worker
 
-DATA_FILTER = "XRD data (*.csv *.txt *.xy *.dat *.tsv);;All files (*)"
+DATA_FILTER = "XRD data (*.csv *.txt *.xy *.dat *.tsv *.brml);;All files (*)"
 
 
 @dataclass
@@ -210,6 +211,7 @@ class MainWindow(QMainWindow):
         self.m_file.addAction(self._act("act.export", self.export_dialog, "Ctrl+E"))
         self.m_file.addAction(self._act("act.export_fig", self.export_figure_dialog))
         self.m_file.addAction(self._act("act.export_batch", self.export_batch_dialog))
+        self.m_file.addAction(self._act("act.open_origin", self.open_in_origin_dialog))
         self.m_file.addSeparator()
         self.m_file.addAction(self._act("act.quit", self.close, QKeySequence.StandardKey.Quit))
 
@@ -351,7 +353,8 @@ class MainWindow(QMainWindow):
         li.setCheckState(Qt.CheckState.Checked)
         li.setToolTip(
             f"{item.pattern.source_path or 'in memory'}\nSHA-256 {item.pattern.sha256}"
-            f"\n{item.pattern.parser} [{item.pattern.format_status}]"
+            f"\n{item.pattern.parser} [{item.pattern.format_status}: "
+            f"{FORMAT_STATUS_TEXT.get(item.pattern.format_status, 'unknown status')}]"
             f"\nflags: {', '.join(item.pattern.quality_flags) or 'none'}"
         )
         self.data_list.addItem(li)
@@ -400,6 +403,11 @@ class MainWindow(QMainWindow):
         )
         if pat.quality_flags:
             self.log(f"  quality flags: {', '.join(pat.quality_flags)}")
+        if "file_wavelength_A" in pat.metadata:
+            self.log(
+                f"  file records wavelength {pat.metadata['file_wavelength_A']} Å "
+                "(not applied automatically; set it under Pre-processing)"
+            )
         recipe = self.current().recipe.copy() if self.current() else AnalysisRecipe()
         recipe.peaks.manual_add_deg, recipe.peaks.manual_remove_deg = [], []
         return self.add_item(DatasetItem(pat, recipe, read_options=options))
@@ -622,6 +630,10 @@ class MainWindow(QMainWindow):
         self.log("Analysis cancelled")
 
     def _on_thread_finished(self) -> None:
+        # finished is emitted as the thread ends, so this wait is brief and never blocks on an
+        # analysis. Only then is it safe to drop the worker, which deletes it.
+        self.thread.wait()
+        self.thread.deleteLater()
         self.worker = None
         self.thread = None
         self._set_busy(False)
@@ -883,6 +895,26 @@ class MainWindow(QMainWindow):
                 self.export_to(folder)
             except (ValueError, OSError) as exc:
                 self.error("export", str(exc))
+
+    def export_origin_to(self, folder: str) -> OriginBundle:
+        """Write the Origin folder for the checked, analysed datasets (else the current one)."""
+        results = [r for r in (self.items[i].result for i in self.checked_indices()) if r]
+        item = self.current()
+        if not results and item is not None and item.result is not None:
+            results = [item.result]
+        bundle = write_origin_bundle(results, Path(folder) / "origin")
+        self.log(f"Wrote {len(results)} dataset(s) for Origin to {bundle.folder}")
+        return bundle
+
+    def open_in_origin_dialog(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, self.tr_("act.open_origin"))
+        if not folder:
+            return
+        try:
+            bundle = self.export_origin_to(folder)
+            start_origin(bundle.folder)
+        except (ValueError, OSError, OriginUnavailable) as exc:
+            self.error("Origin", str(exc))
 
     def export_figure_dialog(self) -> None:
         path, _ = QFileDialog.getSaveFileName(

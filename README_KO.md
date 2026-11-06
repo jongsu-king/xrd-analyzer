@@ -106,7 +106,10 @@ xrd-analyzer-gui
    - **2θ 열**과 **강도 열**
    - 축이 **2θ인지 θ인지**
    - 축 **단위**(degree/radian)
-   - **강도 단위**(counts, cps, a.u.)
+   - **강도 단위**: 파일에 근거가 없으면 미리 선택되지 않습니다. *counts*를 고르면 Poisson
+     가중치가 켜지므로 원시 검출기 카운트일 때만 쓰고, 계수율은 *cps*, 모르면 *a.u.*를 고르세요.
+
+   Bruker `.brml`은 이 정보를 파일이 직접 밝히므로 확인 창 없이 열립니다.
 3. **파장 설정:** *파라미터 → 전처리*에서 고릅니다. 파장이 없으면 분석이 실행되지 않습니다.
    - *Cu Kα1 (1.5405929 Å)*
    - Cu Kα 가중 평균
@@ -153,15 +156,20 @@ xrd-analyzer-gui
 ### 지원 형식
 | 형식 | 상태 | 의미 |
 |---|---|---|
-| 2θ 열과 강도 열이 있는 CSV, TXT, XY, DAT, TSV | `SYNTHETIC_ONLY` | 구현되어 있지만 합성 데이터로만 테스트했습니다. 장비 소프트웨어에서 텍스트로 내보내서 쓰세요 |
-| Rigaku `.ras`/`.rasx`, Malvern Panalytical `.xrdml`, Bruker `.raw`/`.brml`, Philips `.udf` | `UNSUPPORTED` | 형식은 알아보지만 **명확한 메시지와 함께 거부**합니다. 벤더 형식 파서는 실제 파일로 검증한 뒤에만 추가합니다([docs/adapters.md](docs/adapters.md)) |
+| 2θ 열과 강도 열이 있는 CSV, TXT, XY, DAT, TSV | `SYNTHETIC_ONLY` | 구현되어 있지만 합성 데이터로만 테스트했습니다. 아래 Bruker 텍스트 내보내기는 예외입니다 |
+| Bruker 텍스트 내보내기(`'Id: … TimePerStep: …` 헤더 줄이 있는 `.xy`) | `VERIFIED_NATIVE` | 텍스트 리더로 읽고, 같은 스캔의 `.brml`과 비교했습니다. 값이 계수율이므로 `cps`를 고르세요. 값으로 증명되면 가져오기 창이 `cps`를 제안합니다 |
+| Bruker `.brml`, coupled 2θ/θ PSD fast scan, DIFFRAC 버전 8.6.3.0 | `VERIFIED_NATIVE` | 원시 counts라서 Poisson 가중치가 적용됩니다. 실제 D2 PHASER 스캔 4개로 확인했습니다. 다른 버전, 다른 스캔 종류, 다중 스캔, 흡수체 사용 파일은 **명확한 메시지와 함께 거부**합니다 |
+| Rigaku `.ras`/`.rasx`, Malvern Panalytical `.xrdml`, Bruker `.raw`, Philips `.udf` | `UNSUPPORTED` | 형식은 알아보지만 **명확한 메시지와 함께 거부**합니다. 벤더 형식 파서는 실제 파일로 검증한 뒤에만 추가합니다([docs/adapters.md](docs/adapters.md)) |
 
 ### 텍스트 파일 규칙
 - **구분자:** 탭, 세미콜론, 쉼표, 공백. 파일마다 자동으로 감지합니다. 소수점 쉼표(예: `28,44`)는
   감지해서 메시지와 함께 거부합니다.
 - **인코딩:** UTF-8(BOM 유무 무관), CP949, Latin-1.
-- **주석·메타데이터:** `#`, `;`, `!`, `//`, `%`로 시작하는 줄은 주석입니다. 그중 `키: 값`,
+- **주석·메타데이터:** `#`, `;`, `!`, `//`, `%`, `'`로 시작하는 줄은 주석입니다. 그중 `키: 값`,
   `키 = 값` 형태는 메타데이터로 저장하고, 헤더 앞의 `키,값` 줄도 메타데이터로 저장합니다.
+  한 줄에 `키: "값"` 쌍이 여러 개 있으면(Bruker 내보내기) 쌍마다 하나씩 저장합니다.
+- **원시 counts는 정수여야 합니다.** counts로 표시된 값에 소수가 있으면 Poisson 가중치가
+  틀리므로 거부합니다. 이런 데이터에는 `cps`나 `a.u.`를 고르세요.
 - **인식하는 열 이름 예:** `2theta_deg`, `two_theta_deg`, `2θ (°)`, `2-Theta [deg]`, `2θ / rad`,
   `intensity_counts`, `Intensity (a.u.)`, `counts/s`, `cps`, `Intensity / counts`.
   `error`, `esd`, `sigma`, `offset`처럼 불확도를 뜻하는 이름의 열은 자동으로 고르지 않습니다.
@@ -201,10 +209,10 @@ two_theta_deg,intensity_counts
 | 3. 측정 배경 | 빈 홀더·dark 스캔, 배율 | 시료의 2θ 격자로 보간합니다(범위 밖으로 외삽하지 않음). 단위가 같아야 하고, 분산은 더해집니다 |
 | 4. Kα2 | `none`, `strip`(Rachinger), `fit_doublet` | `fit_doublet`을 권장합니다(Poisson 노이즈 모델 유지). `strip`은 노이즈를 상관시키므로 불확도가 근사값으로 표시됩니다. `none`이면 분리된 Kα2 선이 별도 피크로 나타납니다 |
 | 5. 평활화 | Savitzky–Golay 창 크기·차수 | **피크 검출에만** 쓰고, 피팅은 항상 평활화하지 않은 데이터로 합니다 |
-| 6. 기저선 | SNIP, ALS, 반복 다항식, 피크 마스킹 Whittaker, 없음 | SNIP은 평탄하거나 기울어진 배경에 강합니다. *피크 마스킹 Whittaker*는 피크가 아닌 구간만으로 기저선을 맞추므로, 넓은 **비정질 험프**는 기저선에 포함시키면서 피크 꼬리는 먹지 않습니다 |
-| 7. 피크 검출 | 임계값(σ 배수), 최소 간격, 최소·최대 폭, 최대 개수 | counts 데이터는 Poisson √counts를 σ로 쓰고, 그 밖에는 국소 노이즈 추정을 씁니다. 넓은 험프가 피크로 잡히면 최대 폭을 지정하세요 |
+| 6. 기저선 | SNIP, ALS, 반복 다항식, 피크 마스킹 Whittaker, 없음 | SNIP은 평탄하거나 기울어진 배경에 강합니다. *피크 마스킹 Whittaker*는 피크가 아닌 구간만으로 기저선을 맞추므로, 넓은 **비정질 험프**는 기저선에 포함시키면서 피크 꼬리는 먹지 않습니다. SNIP, ALS, 다항식은 노이즈 아래쪽을 따라가므로 그 차이를 되더해 기저선이 평균 배경을 따르게 합니다 **FWHM이 약 0.5°보다 넓은 피크에는 피크 마스킹 Whittaker를 쓰세요.** SNIP과 ALS는 그런 피크의 일부를 기저선으로 가져갑니다. 이때 `baseline_absorbs_peak` 플래그와 경고가 붙습니다. 설정값은 약 0.01° 스텝의 점 수 기준이며, 더 촘촘한 스캔은 기저선 계산에서 그 간격으로 평균합니다 |
+| 7. 피크 검출 | 임계값 k(σ 배수), 최소 간격, 최소·최대 폭, 최대 개수 | 점 하나와 가우시안으로 평활한 데이터(FWHM 4–32 스텝)에서 후보를 찾고, 각각 그 신호의 σ와 비교합니다. counts 데이터는 Poisson √counts를 σ로 쓰고, 그 밖에는 국소 노이즈 추정을 씁니다. 넓은 험프가 피크로 잡히면 최대 폭을 지정하세요 |
 | 8. 수동 편집 | 2θ 위치에 추가 / 근처 피크 제거 | 레시피에 저장되어 똑같이 재현됩니다 |
-| 9. 프로파일 피팅 | pseudo-Voigt 또는 Voigt, 국소 배경(없음/상수/선형), 창 크기(× FWHM) | 겹친 피크는 함께 피팅합니다. 자동 검출 피크 중 피팅으로 확인되지 않은 것은 버리고 나머지를 다시 피팅합니다 |
+| 9. 프로파일 피팅 | pseudo-Voigt 또는 Voigt, 국소 배경(없음/상수/선형), 창 크기(× FWHM) | 겹친 피크는 함께 피팅합니다. 자동 검출 피크는 피크 전체가 유의할 때만(√Δχ² ≥ k, `significance_sigma`로 표시) 남기고 나머지를 다시 피팅합니다. 여러 점에 퍼진 약한 피크도 높고 좁은 피크처럼 평가됩니다 |
 | 10. 결정학 | 파장, K, 기기 broadening, 보정 방식(제곱/선형) | [§8](#8-과학적-근거수식) 참고. 모든 값에 수식, 가정, 상태가 붙습니다 |
 | 11. 기준 패턴 비교 | 계산된 입방 격자(P, I, F, diamond) 또는 사용 권한이 있는 CSV, 허용 오차 | 피크 위치만으로 비교한 **후보**와 신뢰도를 보여줍니다. 상분율은 절대 계산하지 않습니다 |
 
@@ -228,14 +236,36 @@ two_theta_deg,intensity_counts
 | `<이름>_report.html` | 그림이 포함된 단일 HTML 보고서(피크표, 요약) |
 | `<이름>_report.pdf` | 여러 쪽짜리 보고서: 요약·출처, 그래프, 피크표, Williamson–Hall 그래프. CJK 글꼴이 있으면 한글도 표시됩니다 |
 
+### OriginLab Origin에서 열기
+*파일 → Origin으로 열기…*(명령줄에서는 `--origin`)를 쓰면 데이터 CSV, LabTalk 스크립트,
+`open_in_origin.bat`이 든 `origin` 폴더가 생깁니다. Origin이 설치된 Windows PC에서
+`open_in_origin.bat`을 더블클릭하세요(Windows 인스톨러가 파일 형식을 등록했다면 `.xrdorigin`
+파일도 됩니다). Origin이 열리면서 패턴과 피크 통합문서, 데이터·기저선·피팅·피크 표시가 있는
+그래프, 데이터가 여러 개면 겹침 그래프를 만들고, 그 폴더에 프로젝트(`.opju`)를 저장합니다.
+그 다음부터는 `.opju`를 일반 Origin 프로젝트처럼 열면 됩니다.
+
+- Origin은 Windows 전용입니다. Mac이나 Linux에서 만들었다면 폴더를 Windows PC로 옮기세요.
+- `.opju`는 공개되지 않은 형식이라 이 프로그램이 직접 쓰지 못합니다. 파일은 Origin이 만듭니다.
+- Origin에서 한 단계가 실패해도 나머지는 계속 실행되고, 폴더의 `xrd_origin_log.txt`에 어느
+  단계인지 남습니다.
+- `.xrdorigin` 파일을 더블클릭하면 이 버전이 직접 쓴 파일만 실행합니다. 이전 버전이나 다른
+  사람에게서 받은 폴더는 다시 내보내거나, 믿을 수 있으면 `.bat`을 직접 실행하세요.
+- **아직 실제 Origin으로 시험하지 않았습니다.** 명령은 OriginLab 문서를 따랐고, 실행 파일은
+  Windows에서 대역 프로그램으로 시험했습니다. 실패하면 `xrd_origin_log.txt` 내용과 Origin의
+  Script Window에 표시된 오류를 알려 주세요.
+
 **상태 값:**
 - `OK`: 정상
 - `WARNING`: 계산은 했지만 이유를 꼭 읽어야 함
 - `NOT_CALCULABLE`: 계산하지 않음(이유 표시)
 
 **피크 플래그 예:** `not_converged`, `parameters_not_identifiable`, `center_at_bound`,
-`width_at_bound`, `undersampled (FWHM < 3 steps)`, `low_significance (height < 3σ)`,
-`window_truncated_at_scan_edge`.
+`width_at_bound`, `shape_at_bound`(η나 γ가 한계값), `poor_profile_fit`(프로파일이 피크를 설명하지
+못해 모양 오차가 보고된 σ보다 큼), `undersampled (FWHM < 3 steps)`,
+`low_significance (height < 3σ)`, `window_truncated_at_scan_edge`.
+
+**이중선 피팅에서 `height`와 `area`는 Kα1 성분만의 값입니다.** 반사 전체의 면적은
+(1 + R) × area, 보통 1.5 × area입니다. 노트와 `<이름>_peaks.csv` 맨 위에 적혀 있습니다.
 
 ---
 
@@ -250,6 +280,7 @@ xrd-analyzer analyze FILE [옵션] --out DIR
 xrd-analyzer batch FILE... [옵션] --out DIR
 xrd-analyzer selftest [--out report.json]  설치 상태 자체 점검
 xrd-analyzer gui-smoke [--offscreen]       GUI를 열어 예제를 분석하고 닫기
+xrd-analyzer open-in-origin 경로            --origin으로 만든 폴더를 Origin에서 열기 (Windows)
 xrd-analyzer gui                           GUI 실행 (인자 없이 실행해도 GUI)
 ```
 
@@ -257,19 +288,21 @@ xrd-analyzer gui                           GUI 실행 (인자 없이 실행해�
 |---|---|
 | `--recipe FILE` | 저장된 레시피에서 시작(다른 옵션이 우선) |
 | `--wavelength 값` | Å 단위, 또는 `cu_ka1` / `cu_ka_avg` |
-| `--wavelength2 값`, `--ka2 none\|strip\|fit_doublet` | Kα2 처리 |
+| `--wavelength2 값`, `--ka2 none\|strip\|fit_doublet` | Kα2 처리. `--wavelength cu_ka1`이면 짝이 되는 Kα2 값을 채웁니다 |
 | `--axis 2theta-deg\|2theta-rad\|theta-deg\|theta-rad` | x 열의 물리량·단위 확인 |
 | `--x-col N`, `--y-col N` | 0부터 세는 열 번호 |
 | `--intensity-unit counts\|cps\|a.u.` | 강도 단위 |
 | `--drop-nonfinite` | NaN/Inf 행 제외(품질 플래그로 기록) |
 | `--duplicates error\|average\|keep_first` | 중복 2θ 정책 |
 | `--baseline none\|snip\|als\|poly\|masked` | 기저선 방법 |
+| `--prominence-sigma K`, `--smooth` | 피크 유의도 임계값(기본 6), 검출용 Savitzky–Golay 평활 |
 | `--profile pseudo_voigt\|voigt` | 피크 프로파일 |
 | `--K 값`, `--inst-fwhm DEG` | Scherrer K, 일정한 기기 FWHM(2θ) |
 | `--add-peak DEG`, `--remove-peak DEG` | 수동 피크 편집(여러 번 지정 가능) |
 | `--reference-cubic a,centering[,이름]` | 계산된 기준 패턴. 예: `5.431020511,diamond,Si` |
 | `--reference-csv FILE` | 기준 CSV(`d_A` 열, 또는 `two_theta_deg` 열과 `# wavelength_A:` 줄) |
 | `--out DIR`, `--no-pdf` | 출력 폴더, PDF 보고서 생략 |
+| `--origin` | `DIR/origin`도 만듭니다. Origin이 이 폴더로 프로젝트를 만듭니다([§5](#5-결과와-내보내기-파일)). `batch`면 모든 파일을 프로젝트 하나로 묶습니다 |
 
 종료 코드:
 - `0`: 성공
@@ -316,16 +349,18 @@ Vol. C, Table 4.2.2.1). 장비에서 실제로 쓰는 파장과 맞는지 꼭 �
 ---
 
 ## 9. 검증
-수치 검증은 모두 **정답을 아는 합성 패턴**과 해석적 계산으로 했습니다
+수치 정확도는 **정답을 아는 합성 패턴**과 해석적 계산으로 검증했습니다. 파일 읽기, 노이즈 모델,
+피크 위치, 피크 찾기는 실제 스캔 4개로도 확인했습니다
 ([VALIDATION.md](docs/scientific_validation/VALIDATION.md)).
 
 | 예제 | 결과 |
 |---|---|
 | Si 유사 패턴 (Cu Kα1) | 반사 6/6 검출. \|Δ2θ\| ≤ 0.001°, \|Δd\| ≤ 1×10⁻⁵ Å, FWHM 오차 4% 이내. 기기 broadening이 없으므로 Scherrer는 올바르게 `NOT_CALCULABLE` |
 | Si 유사 패턴 + Kα2 (이중 피크 피팅) | Kα1 위치 6/6, 오차 0.001° 이내 |
-| 나노결정 fcc 유사 패턴(D = 15 nm, ε = 1.5×10⁻³) + 비정질 험프 | Williamson–Hall D = 14.96 ± 0.23 nm, ε = (1.51 ± 0.08)×10⁻³. 험프는 기저선으로 분리(오차 약 5 counts) |
+| 나노결정 fcc 유사 패턴(D = 15 nm, ε = 1.5×10⁻³) + 비정질 험프 | Williamson–Hall D = 14.99 ± 0.23 nm, ε = (1.52 ± 0.08)×10⁻³. 험프는 기저선으로 분리(오차 약 5 counts) |
 
-- 자동 테스트는 **294개**이고, 분석 코어 커버리지는 95%입니다.
+- 자동 테스트는 **410개**이고, Windows에서만 도는 테스트가 6개 더 있으며, `XRD_REAL_DATA_DIR`을
+  지정하면 실제 파일 비교 12개가 더 돕니다(실제 연구 데이터는 저장소에 없습니다). 분석 코어 커버리지는 95%입니다.
 - 테스트 범위: 손상되거나 애매한 파일, NaN/Inf, 중복값, 피팅 미수렴, 식별 불가, 분산 전파,
   출처 기록, GUI(화면 없이 실행), CLI.
 - 설치본 검증: 릴리스 워크플로가 Windows, macOS, Linux에서 각각 실행합니다.
@@ -335,8 +370,12 @@ Vol. C, Table 4.2.2.1). 장비에서 실제로 쓰는 파장과 맞는지 꼭 �
 ---
 
 ## 10. 한계
-- 개발 중에 실제 장비 파일을 확보하지 못했습니다. 범용 텍스트 가져오기는 `SYNTHETIC_ONLY`이고,
-  벤더 바이너리 형식은 지원하지 않습니다.
+- 실제 파일 확인은 장비·소프트웨어 버전 하나(Bruker D2 PHASER 스캔 4개)에 대한 것입니다. 다른
+  텍스트 내보내기는 `SYNTHETIC_ONLY`이고, 다른 벤더 형식은 지원하지 않습니다.
+- 보고되는 σ는 통계 성분만 담습니다. 실측에서 피크 폭과 높이는 반복 스캔 사이에 σ의 약 2~2.5배
+  달랐고, 비대칭인 저각 피크는 프로파일 모델에 따라 약 0.01° 달라졌는데 σ는 0.001° 미만이었습니다.
+  피크 프로파일은 대칭이므로 `poor_profile_fit`을 확인하세요. 영점 이동과 시료 높이 오차는
+  보정하지 않으므로, 시료 간 피크 위치 비교에는 내부 표준이 필요합니다.
 - rocking curve, 역격자 공간 맵(RSM), XRR, 2D 이미지, Rietveld 정련은 지원하지 않습니다.
 - Scherrer와 Williamson–Hall은 FWHM 기반입니다(적분폭이 아님). 기기 broadening과 파장의 불확도는
   전파하지 않습니다.
@@ -359,6 +398,7 @@ Vol. C, Table 4.2.2.1). 장비에서 실제로 쓰는 파장과 맞는지 꼭 �
 | "wavelength is not set" | *전처리* 탭에서 프리셋을 고르거나 보정된 파장을 입력하세요 |
 | "decimal comma detected" | 소수점을 점(.)으로 내보내거나 파일을 변환하세요 |
 | "malformed data row … after the column header" | 알려준 줄을 고치거나 지우고, 메타데이터는 헤더 위로 옮기세요 |
+| "not whole numbers … cannot be raw detector counts" | 값이 계수율이나 가공된 데이터입니다. `cps`나 `a.u.`를 고르거나 장비 원시 파일을 여세요 |
 | Scherrer가 `NOT_CALCULABLE` | K와, 표준시료로 측정한 기기 broadening을 **둘 다** 입력하세요 |
 | 모든 반사 옆에 피크가 하나씩 더 있음 | 데이터에 Kα2가 들어 있습니다. *Kα1/Kα2 이중 피크 피팅*을 고르세요 |
 | 넓은 험프가 피크로 잡힘 | *피크 마스킹 Whittaker* 기저선을 쓰거나 최대 피크 폭을 지정하세요 |
@@ -371,7 +411,7 @@ Vol. C, Table 4.2.2.1). 장비에서 실제로 쓰는 파장과 맞는지 꼭 �
 ## 12. 개발
 ```bash
 pip install -e ".[dev]"
-QT_QPA_PLATFORM=offscreen pytest            # 294개 테스트
+QT_QPA_PLATFORM=offscreen pytest            # 410개 테스트
 ruff check src tests && mypy
 python tools/generate_examples.py           # examples/synthetic 다시 생성
 ```

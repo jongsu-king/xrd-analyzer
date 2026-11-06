@@ -13,7 +13,7 @@ import math
 import platform
 import sys
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -21,11 +21,11 @@ import scipy
 from numpy.typing import NDArray
 
 from .. import DISCLAIMER_EN, __version__
+from ..io.validators import MAX_INTENSITY
 from ..models.dataset import XRDPattern, sha256_arrays
 from ..models.recipe import AnalysisRecipe
 from ..models.units import validate_wavelength
 from . import preprocessing as proc
-from . import profiles
 from .crystallography import (
     BRAGG_FORMULA,
     NOT_CALCULABLE,
@@ -44,6 +44,7 @@ from .peaks import (
     apply_manual_edits,
     detect_peaks,
     drop_kalpha2_partners,
+    manual_seed_width,
 )
 from .reference import MatchResult, ReferencePattern, match_reference
 
@@ -52,6 +53,19 @@ ProgressFn = Callable[[float, str], None]
 CancelFn = Callable[[], bool]
 
 __all__ = ["AnalysisCancelled", "AnalysisResult", "Processed", "run_analysis", "run_batch"]
+
+# A seed width this far from the fitted width is redone: it sets the fit window, and a window
+# inflated by noise would pull a neighbouring peak into the same group.
+SEED_WIDTH_RATIO = 1.5
+# A peak's own points are those where its model exceeds this fraction of its maximum.
+PEAK_SIGNAL_FRACTION = 0.02
+# Above these, a peak's shape error exceeds its reported σ: reduced χ² over its own points, or
+# when σ is unknown the lag-1 autocorrelation of its residuals, in standard deviations.
+POOR_FIT_CHI2 = 3.0
+POOR_FIT_Z = 3.0
+# The baseline climbing more than this fraction of a peak's height under it means it follows the
+# peak. Measured on synthetic scans: about 0.03 goes with 5 % of the area lost.
+BASELINE_RISE_MAX = 0.03
 
 
 class AnalysisError(ValueError):
@@ -116,6 +130,7 @@ class PeakReport:
             "scherrer_err_nm": s.uncertainty if s else None,
             "scherrer_status": s.status if s else "",
             "scherrer_reason": s.reason if s else "",
+            "significance_sigma": f.get("significance"),
             "flags": ";".join(f["flags"]),
         }
 
@@ -189,6 +204,16 @@ def provenance(
     pattern: XRDPattern, recipe: AnalysisRecipe, background: XRDPattern | None = None
 ) -> dict[str, Any]:
     pp = recipe.preprocess
+    if pp.kalpha2_mode == "strip":
+        variance_model = (
+            "unweighted after Kα2 stripping: σ from fit residuals, correlations ignored"
+        )
+    elif pattern.counts_like:
+        variance_model = (
+            "Poisson (counts) propagated through duplicate averaging and background interpolation"
+        )
+    else:
+        variance_model = f"unweighted ({pattern.intensity_unit}): σ from fit residuals"
     baseline_alg = {
         "none": "none",
         "snip": "SNIP with LLS transform (Ryan et al. 1988)",
@@ -233,12 +258,12 @@ def provenance(
                 "fit_doublet": "constrained Kα1/Kα2 doublet fit",
             }[pp.kalpha2_mode],
             "smoothing": "Savitzky–Golay (detection only)" if pp.smoothing_enabled else "none",
-            "peak_detection": "scipy.signal.find_peaks (height & prominence ≥ k·σ; "
-            "σ = Poisson for counts, rolling MAD otherwise)",
+            "peak_detection": "scipy.signal.find_peaks on single points and Gaussian-smoothed "
+            "data (height & prominence ≥ k·σ of the searched signal; σ = Poisson for counts, "
+            "rolling MAD otherwise), confirmed by the fit (√Δχ² ≥ k)",
             "fitting": f"scipy.optimize.least_squares (trf), profile={recipe.fit.profile}",
             "fwhm_voigt": "Olivero & Longbothum (1977)",
-            "variance_model": "Poisson (counts) propagated through duplicate averaging and "
-            "background interpolation; residual-scaled after Kα2 stripping",
+            "variance_model": variance_model,
         },
     }
 
@@ -250,6 +275,10 @@ def preprocess(
     warnings: list[str] = []
     notes: list[str] = []
     x, y, axis = proc.order_axis(pattern.two_theta_deg, pattern.intensity, pp.duplicate_policy)
+    if y.size and float(np.max(np.abs(y))) > MAX_INTENSITY:
+        raise proc.ProcessingError(
+            f"intensity reaches {float(np.max(np.abs(y))):.3g}, beyond any measured or scaled data"
+        )
     n_avg = axis.n_per_point if axis.n_per_point is not None else np.ones_like(x)
     notes += axis.notes
     if pp.crop_min_deg is not None or pp.crop_max_deg is not None:
@@ -263,6 +292,10 @@ def preprocess(
         )
     raw = y
     umodel: list[str] = []
+    if pattern.counts_like and np.any(np.abs(raw - np.round(raw)) > 1e-6):
+        warnings.append(
+            "intensities labelled as counts are not whole numbers: Poisson weights are unreliable"
+        )
     # Poisson variance of each (possibly averaged) point: Var(mean of n) = λ/n
     var = np.maximum(raw, 1.0) / n_avg if pattern.counts_like else None
     if var is None:
@@ -331,15 +364,26 @@ def preprocess(
     if pp.smoothing_enabled:
         smoothed = proc.savgol(y, pp.smoothing_window, pp.smoothing_polyorder)
     base_src = smoothed if smoothed is not None else y
+    factor = proc.coarsening_factor(x)
+    xb, yb = proc.block_means(x, factor), proc.block_means(base_src, factor)
+    if factor > 1 and pp.baseline_method != "none":
+        notes.append(
+            f"baseline computed on means of {factor} points ({factor * axis.median_step_deg:.4g}° "
+            "grid), so that its settings do not depend on how finely the scan was sampled"
+        )
+
+    def full_grid(b: FloatArray) -> FloatArray:
+        return np.interp(x, xb, b) if factor > 1 else b
+
     if pp.baseline_method == "snip":
-        baseline = proc.baseline_snip(base_src, pp.snip_iterations)
+        baseline = full_grid(proc.baseline_snip(yb, pp.snip_iterations))
     elif pp.baseline_method == "als":
-        baseline = proc.baseline_als(base_src, pp.als_lambda, pp.als_p, pp.als_iterations)
+        baseline = full_grid(proc.baseline_als(yb, pp.als_lambda, pp.als_p, pp.als_iterations))
     elif pp.baseline_method == "poly":
-        baseline = proc.baseline_poly(x, base_src, pp.poly_degree, pp.poly_iterations)
+        baseline = full_grid(proc.baseline_poly(xb, yb, pp.poly_degree, pp.poly_iterations))
     elif pp.baseline_method == "masked":
         # provisional SNIP baseline → provisional peaks → Whittaker through non-peak points
-        prov = proc.baseline_snip(base_src, pp.snip_iterations)
+        prov = full_grid(proc.baseline_snip(yb, pp.snip_iterations))
         ps = recipe.peaks
         cands, _ = detect_peaks(
             x,
@@ -352,11 +396,13 @@ def preprocess(
             sigma if sigma is not None else proc.local_noise_sigma(y - prov),
             ps.max_width_deg,
         )
-        manual = [(c, 10 * float(np.median(np.diff(x)))) for c in ps.manual_add_deg]
+        manual = [(c, manual_seed_width(x)) for c in ps.manual_add_deg]
         centers = [c.position_deg for c in cands] + [m[0] for m in manual]
         fwhms = [c.fwhm_est_deg for c in cands] + [m[1] for m in manual]
         mask = proc.peak_mask(x, centers, fwhms, pp.mask_fwhm_factor)
-        baseline = proc.baseline_masked_whittaker(base_src, mask, pp.als_lambda)
+        baseline = full_grid(
+            proc.baseline_masked_whittaker(yb, proc.block_any(mask, factor), pp.als_lambda)
+        )
         notes.append(
             f"masked baseline: {len(centers)} provisional peak region(s) excluded "
             f"(±{pp.mask_fwhm_factor}×FWHM, {mask.mean():.0%} of points); amorphous/broad "
@@ -366,6 +412,10 @@ def preprocess(
         baseline = np.zeros_like(y)
     warnings += proc.baseline_warnings(y, baseline)
     net = y - baseline
+    umodel.append(
+        "σ values are statistical (from the fit) only: zero shift, sample displacement, "
+        "profile-shape error and scan-to-scan reproducibility are not included"
+    )
     return (
         Processed(x, raw, bg_sub, stripped, smoothed, baseline, net, sigma, axis, umodel),
         warnings,
@@ -373,20 +423,70 @@ def preprocess(
     )
 
 
-def doublet_observable_height(p: Any, doublet: tuple[float, float, float]) -> float:
-    """Maximum of the modelled Kα1+Kα2 signal of fitted peak ``p``.
+def _number(text: Any) -> float | None:
+    """A value recorded in a file, if it is a number. Files are not ours to trust."""
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return None
 
-    The grid always contains both component centres and is sampled at FWHM/40 between
-    them (±3 FWHM), so the estimate can never fall below the model value at the Kα1 centre,
-    however narrow the peak.
+
+def baseline_rise(p: Any, x: FloatArray, baseline: FloatArray) -> float:
+    """How far the baseline climbs under a peak, as a fraction of the height left above it.
+
+    A baseline that follows a peak takes part of it away: height, area and FWHM then come out too
+    small, and a Scherrer size too large. A background sloping or bending over the same range
+    gives far less than a peak does.
     """
-    c1, w = float(p.center_deg), max(float(p.fwhm_deg), 1e-9)
-    c2 = profiles.kalpha2_position(c1, doublet[0], doublet[1])
-    centres = [c1] + ([c2] if math.isfinite(c2) else [])
-    lo, hi = min(centres) - 3 * w, max(centres) + 3 * w
-    n = int(min(max(math.ceil((hi - lo) / (w / 40.0)) + 1, 201), 200_001))
-    grid = np.unique(np.concatenate([np.linspace(lo, hi, n), np.asarray(centres)]))
-    return float(np.max(peak_curve(grid, p, doublet)))
+    c, w = p.center_deg, p.fwhm_deg
+    top = float(np.interp(c, x, baseline))
+    wings = 0.5 * float(np.interp(c - 2.0 * w, x, baseline) + np.interp(c + 2.0 * w, x, baseline))
+    return (top - wings) / p.height if p.height > 0 else 0.0
+
+
+def poorly_fitted(p: Any, fit: FitResult, x: FloatArray, sigma: FloatArray | None) -> bool:
+    """Whether ``p`` is badly described by its profile, judged over its own points.
+
+    A group's χ²_red can hide a badly fitted peak among the many background points of a wide
+    window. With known σ the test is the reduced χ². Without it the local noise estimate is no
+    help, because it does not see the noise grow under a strong peak, so the test is whether
+    the residuals follow each other (lag-1 autocorrelation), which needs no noise scale.
+    """
+    group = next((g for g in fit.groups if g.group_id == p.group_id), None)
+    if group is None or group.x is None or group.y is None or group.y_fit is None:
+        return False
+    curve = peak_curve(group.x, p, fit.doublet)
+    own = curve > PEAK_SIGNAL_FRACTION * float(np.max(curve))
+    n = int(own.sum())
+    if n <= 8:
+        return False  # too few points to judge
+    resid = group.y[own] - group.y_fit[own]
+    if sigma is not None:
+        return (
+            float(np.sum((resid / np.interp(group.x[own], x, sigma)) ** 2)) / (n - 4)
+            > POOR_FIT_CHI2
+        )
+    resid = resid - float(np.mean(resid))
+    power = float(np.sum(resid**2))
+    return power > 0 and float(np.sum(resid[:-1] * resid[1:])) / power * math.sqrt(n) > POOR_FIT_Z
+
+
+def integrated_significance(
+    p: Any, fit: FitResult, x: FloatArray, point_sigma: FloatArray
+) -> float:
+    """√Δχ² of fitted peak ``p``: how much worse the fit gets without it, over its fit window.
+
+    Δχ² = Σ[(r + c)² − r²]/σ², with r the fit residuals and c the peak's modelled signal, both
+    components for a Kα1/Kα2 doublet. Every point of the peak contributes, so the value does
+    not depend on how finely the scan was sampled, unlike the height in units of a point's σ.
+    """
+    group = next((g for g in fit.groups if g.group_id == p.group_id), None)
+    if group is None or group.x is None or group.y is None or group.y_fit is None:
+        return 0.0
+    curve = peak_curve(group.x, p, fit.doublet)
+    resid = group.y - group.y_fit
+    sigma = np.interp(group.x, x, point_sigma)
+    return math.sqrt(max(float(np.sum((curve**2 + 2.0 * resid * curve) / sigma**2)), 0.0))
 
 
 def run_analysis(
@@ -443,6 +543,11 @@ def run_analysis(
                 notes.append(
                     f"{n_drop} detected Kα2 partner peak(s) merged into their Kα1 doublets"
                 )
+        if len(cands) >= ps.max_peaks:
+            warnings.append(
+                f"candidate list stopped at max_peaks = {ps.max_peaks}; weaker peaks were not "
+                "considered"
+            )
     cands, edit_notes = apply_manual_edits(
         cands, x, det_src, ps.manual_add_deg, ps.manual_remove_deg, ps.edit_tolerance_deg
     )
@@ -470,41 +575,92 @@ def run_analysis(
             cancel,
         )
 
-    fit = _fit(cands)
-
-    # Auto-detected candidates are confirmed by the fit with the SAME significance criterion
-    # used for detection (fitted amplitude ≥ k·σ at the peak), and must be resolvable at the
-    # local scan step and have height ≥ 3σ_height. Otherwise they are noise: drop them and
-    # refit once. Manual peaks are the user's decision and are kept (with flags).
-    def _observable_height(p: Any) -> float:
-        # Detection saw the summed signal; for a Kα1/Kα2 doublet compare the maximum of the
-        # modelled doublet (both components), not the Kα1 component alone.
-        if fit.doublet is None or not p.doublet:
-            return float(p.height)
-        return doublet_observable_height(p, fit.doublet)
-
-    def _unconfirmed(p: Any) -> bool:
-        thr_here = ps.prominence_sigma * float(np.interp(p.center_deg, x, point_sigma))
+    # Auto-detected candidates are confirmed by the fit: the whole peak must be significant
+    # at the level used for detection (√Δχ² ≥ k), be resolvable at the local scan step and have
+    # height ≥ 3σ_height. Otherwise they are noise: drop them and refit. Manual peaks are the
+    # user's decision and are kept (with flags).
+    def _unconfirmed(p: Any, current: FitResult) -> bool:
         return bool(
-            p.fwhm_deg < MIN_WIDTH_STEPS * proc.local_step(x, p.center_deg)
-            or _observable_height(p) < thr_here
+            not p.ok
+            or p.fwhm_deg < MIN_WIDTH_STEPS * proc.local_step(x, p.center_deg)
+            or integrated_significance(p, current, x, point_sigma) < ps.prominence_sigma
             or (p.height_err is not None and p.height < 3 * p.height_err)
         )
 
-    noise_ids = {
-        p.peak_id
+    def _confirm(
+        cs: list[PeakCandidate], current: FitResult
+    ) -> tuple[list[PeakCandidate], FitResult, int]:
+        noise = {
+            p.peak_id
+            for p in current.peaks
+            if cs[p.peak_id].source == "auto" and _unconfirmed(p, current)
+        }
+        if not noise:
+            return cs, current, 0
+        kept = [c for i, c in enumerate(cs) if i not in noise]
+        return kept, _fit(kept), len(noise)
+
+    fit = _fit(cands)
+    cands, fit, n_rejected = _confirm(cands, fit)
+    # The seed width sets the fit window, so a seed far from the fitted width is redone. Only
+    # confirmed peaks get here: the fitted width of a noise spike would leave no window at all.
+    step_here = float(np.median(np.diff(x)))
+    reseeded = {
+        p.peak_id: max(p.fwhm_deg, 3.0 * step_here)
         for p in fit.peaks
-        if cands[p.peak_id].source == "auto" and p.ok and _unconfirmed(p)
+        if p.ok
+        and cands[p.peak_id].source == "auto"
+        and not 1 / SEED_WIDTH_RATIO < p.fwhm_deg / cands[p.peak_id].fwhm_est_deg < SEED_WIDTH_RATIO
     }
-    if noise_ids:
-        cands = [c for i, c in enumerate(cands) if i not in noise_ids]
+    if reseeded:
+        cands = [
+            replace(c, fwhm_est_deg=reseeded[i]) if i in reseeded else c
+            for i, c in enumerate(cands)
+        ]
+        cands, fit, n_second = _confirm(cands, _fit(cands))
+        n_rejected += n_second
+    if n_rejected:
         notes.append(
-            f"{len(noise_ids)} auto-detected candidate(s) not confirmed by the fit (fitted "
-            f"height < {ps.prominence_sigma}σ, < 3σ_height, or FWHM < {MIN_WIDTH_STEPS} steps) "
-            "were rejected and the rest refitted"
+            f"{n_rejected} auto-detected candidate(s) not confirmed by the fit "
+            f"(significance < {ps.prominence_sigma}σ, height < 3σ_height, or FWHM < "
+            f"{MIN_WIDTH_STEPS} steps) were rejected and the rest refitted"
         )
-        fit = _fit(cands)
     warnings += fit.warnings
+    for p in fit.peaks:
+        if p.ok:
+            p.significance = integrated_significance(p, fit, x, point_sigma)
+    for p in fit.peaks:
+        if p.ok and poorly_fitted(p, fit, x, processed.sigma):
+            p.flags.append("poor_profile_fit")
+            for g in fit.groups:
+                if g.group_id == p.group_id and not any("chi2_red>3" in f for f in g.flags):
+                    g.flags.append(
+                        f"peak at {p.center_deg:.2f}°: the profile does not describe it "
+                        "(shape error exceeds the reported σ)"
+                    )
+    absorbed = [
+        p for p in fit.peaks if p.ok and baseline_rise(p, x, processed.baseline) > BASELINE_RISE_MAX
+    ]
+    for p in absorbed:
+        p.flags.append("baseline_absorbs_peak")
+    if absorbed:
+        where = ", ".join(f"{p.center_deg:.2f}°" for p in absorbed[:5])
+        warnings.append(
+            f"the baseline follows the peak(s) at {where}: height, area and FWHM come out too "
+            "small and Scherrer sizes too large. Use the masked baseline or a wider baseline "
+            "setting for broad peaks"
+        )
+    if doublet is not None and any(p.ok for p in fit.peaks):
+        notes.append(
+            "Kα1/Kα2 doublet fit: height and area describe the Kα1 component only; the area of "
+            f"the whole reflection is {1.0 + doublet[2]:g} × area"
+        )
+    file_wl = _number(pattern.metadata.get("file_wavelength_A"))
+    if file_wl is not None and abs(file_wl - wl) > 0.002:
+        warnings.append(
+            f"recipe wavelength {wl} Å differs from {file_wl} Å recorded in the file; "
+            "the recipe value was used"
+        )
 
     step(0.8, "crystallographic quantities")
     inst = _instrument(recipe)

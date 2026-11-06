@@ -3,6 +3,16 @@
 Vendor formats are `UNSUPPORTED` until a parser is validated against **real files from the
 instrument and software version in question**. Do not implement a format from memory or from third-party descriptions alone.
 
+## Status of existing adapters
+Bruker `.brml` (`io/bruker.py`) was implemented against four real files from one D2 PHASER and
+DIFFRAC version 8.6.3.0. Each was compared with the same scan's vendor text export: same 2θ
+grid, and counts ÷ time equal to the exported rates within rounding. Run the comparison with
+`XRD_REAL_DATA_DIR=<folder> pytest tests/integration/test_real_bruker_files.py`.
+
+Two prerequisites below are **not** met yet, so the reader refuses everything else: all four
+files are the same scan mode (no multi-scan file, no absorber), and the real files are not
+committed. The committed tests use synthetic archives with the same XML layout.
+
 ## Prerequisites
 1. At least 3 real exports per format/software version (different scan modes, a
    multi-scan file, and an attenuator change if applicable), with written permission to

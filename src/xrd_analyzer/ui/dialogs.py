@@ -58,10 +58,16 @@ class ImportDialog(QDialog):
         if probe.axis_unit == "rad":
             self.unit.setCurrentIndex(1)
         self.iunit = QComboBox()
-        for u in ("counts", "cps", "a.u."):
+        units = ("counts", "cps", "a.u.")
+        for u in units:
             self.iunit.addItem(u, u)
-        if probe.intensity_unit in ("cps", "a.u."):
-            self.iunit.setCurrentIndex(("counts", "cps", "a.u.").index(probe.intensity_unit))
+        # Choosing counts turns on Poisson weights, so it is never the silent default.
+        known = probe.intensity_unit or probe.suggested_intensity_unit
+        if not probe.integer_intensity:
+            self.iunit.model().item(0).setEnabled(False)  # fractional values cannot be counts
+            if known == "counts":
+                known = probe.suggested_intensity_unit
+        self.iunit.setCurrentIndex(units.index(known) if known in units else -1)
         self.drop = QCheckBox("drop rows with NaN/Inf (recorded as a quality flag)")
         form.addRow("2θ/θ column", self.x_col)
         form.addRow("intensity column", self.y_col)
@@ -86,6 +92,12 @@ class ImportDialog(QDialog):
             return
         if self.x_col.value() == self.y_col.value():
             self.error.setText("2θ and intensity columns must differ.")
+            return
+        if self.iunit.currentIndex() < 0:
+            self.error.setText(
+                "Choose the intensity unit: counts only for raw detector counts, cps for "
+                "count rates, a.u. if unknown."
+            )
             return
         self.accept()
 

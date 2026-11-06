@@ -1,19 +1,33 @@
-"""Automatic peak detection (scipy.signal.find_peaks) and reproducible manual edits."""
+"""Automatic peak detection (scipy.signal.find_peaks) and reproducible manual edits.
+
+A peak spread over many sampling steps can be highly significant as a whole while no single
+point stands out, so detection searches single points and Gaussian-smoothed copies of the data.
+At every scale the threshold is k × the σ of that (smoothed) signal.
+"""
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks, peak_widths
 
-from .preprocessing import noise_sigma
+from .preprocessing import REFERENCE_STEP_DEG, block_means, coarsening_factor, noise_sigma
 from .profiles import kalpha2_position
 
 FloatArray = NDArray[np.float64]
 MIN_WIDTH_STEPS = 1.5
+# Gaussian smoothing widths searched besides single points (FWHM, in sampling steps).
+SEARCH_FWHM_STEPS = (4.0, 8.0, 16.0, 32.0)
+_FWHM_PER_SIGMA = 2.0 * math.sqrt(2.0 * math.log(2.0))
+# A feature wider than this many kernel widths belongs to a coarser scale or to the baseline.
+MAX_WIDTH_PER_KERNEL = 3.0
+# A single-point peak this many times over threshold keeps its own position and width.
+STRONG_PEAK_FACTOR = 2.0
 
 
 @dataclass
@@ -26,6 +40,100 @@ class PeakCandidate:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass
+class _Hit:
+    position_deg: float
+    height: float
+    width_deg: float
+    prominence: float
+    significance: float  # prominence in units of the σ of the searched signal
+    exclusion_deg: float  # no second candidate this close
+    strong: bool = False
+
+
+def _widths_deg(x: FloatArray, y: FloatArray, idx: NDArray[np.intp]) -> FloatArray:
+    """FWHM of each peak in degrees, measured on the axis, so mixed steps count correctly."""
+    _, _, left, right = peak_widths(y, idx, rel_height=0.5)
+    points = np.arange(x.size)
+    return np.asarray(np.interp(right, points, x) - np.interp(left, points, x), dtype=float)
+
+
+def manual_seed_width(x: FloatArray) -> float:
+    """Width assumed for a manual peak with no other to go by: 10 steps, or 0.1° on fine scans."""
+    return 10.0 * max(float(np.median(np.diff(x))), REFERENCE_STEP_DEG)
+
+
+def _pointwise_hits(
+    x: FloatArray,
+    y: FloatArray,
+    thr: float | FloatArray,
+    sigma: FloatArray,
+    distance: int,
+    min_distance_deg: float,
+) -> list[_Hit]:
+    idx, props = find_peaks(y, height=thr, prominence=thr, distance=distance)
+    if idx.size == 0:
+        return []
+    widths = _widths_deg(x, y, idx)
+    thr_at = np.broadcast_to(thr, y.shape)[idx]
+    return [
+        _Hit(
+            float(x[i]),
+            float(y[i]),
+            float(w),
+            float(p),
+            float(p / max(sigma[i], 1e-12)),
+            min_distance_deg,
+            bool(p >= STRONG_PEAK_FACTOR * t),
+        )
+        for i, w, p, t in zip(idx, widths, props["prominences"], thr_at, strict=True)
+    ]
+
+
+def _smoothed_hits(
+    x: FloatArray,
+    y: FloatArray,
+    sigma: FloatArray,
+    k: float,
+    floor: float,
+    distance: int,
+    step: float,
+    kernel_steps: float,
+    min_distance_deg: float,
+) -> list[_Hit]:
+    s = kernel_steps / _FWHM_PER_SIGMA
+    smooth = gaussian_filter1d(y, s, mode="nearest")
+    # Var(Σ gᵢyᵢ) = Σ gᵢ²σᵢ², and g² is a Gaussian of width s/√2 with area 1/(2s√π).
+    var = gaussian_filter1d(sigma**2, s / math.sqrt(2.0), mode="nearest") / (
+        2.0 * s * math.sqrt(math.pi)
+    )
+    sig = np.sqrt(var)
+    thr = np.maximum(k * sig, floor)
+    idx, props = find_peaks(smooth, height=thr, prominence=thr, distance=distance)
+    if idx.size == 0:
+        return []
+    measured = peak_widths(smooth, idx, rel_height=0.5)[0]
+    hits = []
+    for i, w, p in zip(idx, measured, props["prominences"], strict=True):
+        if w > MAX_WIDTH_PER_KERNEL * kernel_steps:
+            continue
+        if i < kernel_steps or i >= y.size - kernel_steps:
+            continue  # the kernel reaches past the scan end
+        # remove the kernel from the width; never below half of it, where noise dominates
+        width = max(math.sqrt(max(w**2 - kernel_steps**2, 0.0)), 0.5 * kernel_steps) * step
+        hits.append(
+            _Hit(
+                float(x[i]),
+                float(smooth[i]),
+                width,
+                float(p),
+                float(p / max(sig[i], 1e-12)),
+                max(min_distance_deg, kernel_steps * step),
+            )
+        )
+    return hits
 
 
 def detect_peaks(
@@ -43,38 +151,75 @@ def detect_peaks(
 
     σ is the per-point Poisson σ (``point_sigma``, raw counts) when available, otherwise a
     robust global estimate from ``noise_reference`` (the unsmoothed net signal — smoothing
-    would make the threshold artificially low). Returns (candidates, median threshold).
+    ``y`` would make the single-point threshold artificially low). The same test then runs on
+    Gaussian-smoothed copies of ``noise_reference``, each against the σ of its own smoothed
+    signal. Candidates are seeds for the fit, which decides whether they are confirmed.
+    Returns (candidates, median single-point threshold).
     """
     step = float(np.median(np.diff(x)))
     span = float(np.max(y) - np.min(y)) or 1.0
+    floor = 1e-3 * span
     thr: float | FloatArray
     if point_sigma is not None:
-        thr = np.maximum(prominence_sigma * np.asarray(point_sigma, dtype=float), 1e-3 * span)
+        sigma = np.asarray(point_sigma, dtype=float)
+        thr = np.maximum(prominence_sigma * sigma, floor)
         thr_report = float(np.median(thr))
     else:
-        sigma = noise_sigma(noise_reference if noise_reference is not None else y)
-        thr = max(prominence_sigma * sigma, 1e-3 * span)
+        sigma = np.full_like(y, noise_sigma(noise_reference if noise_reference is not None else y))
+        thr = max(prominence_sigma * float(sigma[0]), floor)
         thr_report = float(thr)
     distance = max(1, round(min_distance_deg / step))
-    idx, props = find_peaks(y, height=thr, prominence=thr, distance=distance)
-    if idx.size == 0:
-        return [], thr_report
-    widths = peak_widths(y, idx, rel_height=0.5)[0] * step
+    source = noise_reference if noise_reference is not None else y
+    hits = _pointwise_hits(x, y, thr, sigma, distance, min_distance_deg)
+    for kernel in SEARCH_FWHM_STEPS:
+        hits += _smoothed_hits(
+            x, source, sigma, prominence_sigma, floor, distance, step, kernel, min_distance_deg
+        )
+    # The kernels above count steps. A finely sampled scan needs the same widths in degrees too.
+    factor = coarsening_factor(x)
+    if factor > 1:
+        xb, source_b = block_means(x, factor), block_means(source, factor)
+        sigma_b = np.sqrt(block_means(sigma**2, factor) / factor)
+        step_b = factor * step
+        for kernel in SEARCH_FWHM_STEPS:
+            hits += _smoothed_hits(
+                xb,
+                source_b,
+                sigma_b,
+                prominence_sigma,
+                floor,
+                max(1, round(min_distance_deg / step_b)),
+                step_b,
+                kernel,
+                min_distance_deg,
+            )
+
     # FWHM below 1.5 sampling steps cannot be a resolvable diffraction peak (noise spike)
-    keep = (widths >= min_width_deg) & (widths >= MIN_WIDTH_STEPS * step)
-    if max_width_deg is not None:
-        keep &= widths <= max_width_deg
-    idx, widths, prom = idx[keep], widths[keep], props["prominences"][keep]
-    order = np.argsort(prom)[::-1][:max_peaks]
+    def usable(h: _Hit) -> bool:
+        return (
+            h.width_deg >= min_width_deg
+            and h.width_deg >= MIN_WIDTH_STEPS * step
+            and (max_width_deg is None or h.width_deg <= max_width_deg)
+        )
+
+    hits = [h for h in hits if usable(h)]
+    # Strong peaks keep their single-point position and width. Every other feature takes the
+    # scale at which it is most significant, which is the one matching its width.
+    accepted = [h for h in hits if h.strong]
+    for h in sorted((h for h in hits if not h.strong), key=lambda h: -h.significance):
+        radius = h.exclusion_deg
+        if all(abs(h.position_deg - a.position_deg) >= radius for a in accepted):
+            accepted.append(h)
+    accepted.sort(key=lambda h: -h.prominence)
     cands = [
         PeakCandidate(
-            position_deg=float(x[idx[i]]),
-            height=float(y[idx[i]]),
-            fwhm_est_deg=float(max(widths[i], 2 * step)),
-            prominence=float(prom[i]),
+            position_deg=h.position_deg,
+            height=h.height,
+            fwhm_est_deg=float(max(h.width_deg, 2 * step)),
+            prominence=h.prominence,
             source="auto",
         )
-        for i in order
+        for h in accepted[:max_peaks]
     ]
     cands.sort(key=lambda c: c.position_deg)
     return cands, thr_report
@@ -126,8 +271,7 @@ def apply_manual_edits(
     removed = len(candidates) - len(kept)
     if removed:
         notes.append(f"{removed} peak(s) removed manually")
-    step = float(np.median(np.diff(x)))
-    default_w = float(np.median([c.fwhm_est_deg for c in kept])) if kept else 10 * step
+    default_w = float(np.median([c.fwhm_est_deg for c in kept])) if kept else manual_seed_width(x)
     for pos in add_deg:
         if not x[0] <= pos <= x[-1]:
             notes.append(f"manual peak at {pos:.4f}° is outside the data range — ignored")

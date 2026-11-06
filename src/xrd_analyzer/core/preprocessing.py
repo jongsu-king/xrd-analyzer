@@ -12,10 +12,24 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 from scipy import sparse
+from scipy.ndimage import median_filter, percentile_filter, uniform_filter1d
 from scipy.signal import savgol_filter
 from scipy.sparse.linalg import spsolve
 
 FloatArray = NDArray[np.float64]
+# Points used to estimate the noise floor of ALS and polynomial baselines.
+FLOOR_WINDOW = 161
+# The noise floor may exceed by this factor the lower quartile of its values within this many
+# windows, which stays with the noise beside a peak that fills one whole window.
+FLOOR_QUIET_WINDOWS = 5
+FLOOR_MARGIN = 1.25
+# The median of data − lower envelope may be this many times its lower quartile. For noise alone
+# that ratio is about 1.5 (2σ over 1.33σ).
+FLOOR_QUARTILE_LIMIT = 2.0
+# Baseline parameters count points. Scans sampled more than twice as finely as this are averaged
+# down to about this step for the baseline, so that a setting means the same width in degrees.
+REFERENCE_STEP_DEG = 0.01
+MIN_BLOCKS = 100  # a narrow scan keeps at least this many averaged points
 
 
 class ProcessingError(ValueError):
@@ -196,21 +210,95 @@ def savgol(y: FloatArray, window: int, polyorder: int) -> FloatArray:
 # ------------------------------------------------------------------------------ baselines
 
 
+def coarsening_factor(x: FloatArray) -> int:
+    """How many points to average so that a finely sampled scan is near the reference step."""
+    steps = np.diff(x)
+    step = float(np.median(steps)) if steps.size else 0.0
+    if step <= 0 or float(np.percentile(steps, 95)) > 2.0 * step:
+        return 1  # with mixed steps, blocks that suit the fine part would swallow the coarse one
+    return max(
+        1, min(int(REFERENCE_STEP_DEG / step + 1e-6), x.size // MIN_BLOCKS)
+    )  # 0.01/0.001 ≈ 9.99…
+
+
+def _block_starts(n: int, factor: int) -> NDArray[np.intp]:
+    return np.arange(0, n, factor)
+
+
+def block_means(v: FloatArray, factor: int) -> FloatArray:
+    """Means of consecutive blocks of ``factor`` points; the last block may be shorter."""
+    if factor <= 1:
+        return np.asarray(v, dtype=float)
+    starts = _block_starts(v.size, factor)
+    sizes = np.diff(np.append(starts, v.size))
+    return np.asarray(np.add.reduceat(v, starts) / sizes, dtype=float)
+
+
+def block_any(mask: NDArray[np.bool_], factor: int) -> NDArray[np.bool_]:
+    """Whether any point of each block is set."""
+    if factor <= 1:
+        return np.asarray(mask, dtype=bool)
+    return np.logical_or.reduceat(mask, _block_starts(mask.size, factor))
+
+
+def _noise_floor(residual: FloatArray, window: int) -> FloatArray:
+    """Slowly varying offset between noisy data and a lower-envelope baseline.
+
+    Lower-envelope estimators follow the bottom of the noise, about 2σ under the mean
+    background. A peak filling less than half of ``window`` leaves its median to the noise, and
+    less than three quarters its lower quartile. A wider one lifts both, and that would take the
+    peak into the baseline. The noise changes slowly, so the offset is held near what the quieter
+    stretches close by show.
+    """
+    n = residual.size
+    window = max(3, min(window, n if n % 2 else n - 1))
+    floor = np.maximum(median_filter(residual, size=window, mode="nearest"), 0.0)
+    # where peaks fill more than half of the window, the median sees them and the quartile does not
+    lower = percentile_filter(residual, 25, size=window, mode="reflect")
+    floor = np.minimum(floor, FLOOR_QUARTILE_LIMIT * np.maximum(lower, 0.0))
+    # reflect: the ends of a lower envelope stay on the data; repeated, they would look quiet
+    quiet = percentile_filter(floor, 25, size=FLOOR_QUIET_WINDOWS * window, mode="reflect")
+    held = np.minimum(floor, FLOOR_MARGIN * quiet)
+    return np.asarray(uniform_filter1d(held, size=window, mode="nearest"), dtype=float)
+
+
+def _odd_extension(y: FloatArray, pad: int) -> FloatArray:
+    """Continue ``y`` past both ends by point reflection.
+
+    SNIP clips a point only as often as it has neighbours on both sides, so without this the
+    last points stay on the data and the noise floor changes along the first ``pad`` points,
+    which looks like a broad peak there. Averaging the end points keeps one noisy point from
+    shifting the whole extension.
+    """
+    if pad < 1:
+        return y.copy()
+    m = min(5, pad)
+    lo = float(np.min(y))
+    head = np.maximum(2.0 * float(np.mean(y[:m])) - y[1 : pad + 1][::-1], lo)
+    tail = np.maximum(2.0 * float(np.mean(y[-m:])) - y[-pad - 1 : -1][::-1], lo)
+    return np.concatenate([head, y, tail])
+
+
 def baseline_snip(y: FloatArray, iterations: int = 40) -> FloatArray:
     """SNIP baseline (Ryan et al., NIM B 34, 396 (1988)) with LLS transform.
 
     ``iterations`` ≈ half-width (in points) of the widest feature still treated as a peak.
+    The noise-floor offset is added back, so the result follows the mean background.
     """
     if iterations < 1:
         raise ProcessingError("SNIP iterations must be ≥ 1")
+    y = np.asarray(y, dtype=float)
+    pad = min(iterations, (y.size - 1) // 2)
+    extended = _odd_extension(y, pad)
     offset = min(0.0, float(np.min(y)))
-    v = np.log(np.log(np.sqrt(y - offset + 1.0) + 1.0) + 1.0)
+    v = np.log(np.log(np.sqrt(extended - offset + 1.0) + 1.0) + 1.0)
     n = v.size
     for k in range(1, min(iterations, (n - 1) // 2) + 1):
         avg = 0.5 * (v[: n - 2 * k] + v[2 * k :])
         v[k : n - k] = np.minimum(v[k : n - k], avg)
     b = (np.exp(np.exp(v) - 1.0) - 1.0) ** 2 - 1.0 + offset
-    return np.asarray(b, dtype=float)
+    b = b + _noise_floor(extended - b, 4 * iterations + 1)
+    return np.asarray(b[pad : n - pad], dtype=float)
 
 
 def baseline_als(
@@ -228,7 +316,7 @@ def baseline_als(
         wm = sparse.spdiags(w, 0, n, n)
         z = spsolve(sparse.csc_matrix(wm + penalty), w * y)
         w = p * (y > z) + (1 - p) * (y < z)
-    return np.asarray(z, dtype=float)
+    return np.asarray(z + _noise_floor(y - z, FLOOR_WINDOW), dtype=float)
 
 
 def baseline_masked_whittaker(
@@ -277,7 +365,7 @@ def baseline_poly(
         if np.allclose(new, work, rtol=0, atol=1e-9 * (np.abs(work).max() + 1)):
             break
         work = new
-    return np.asarray(fit, dtype=float)
+    return np.asarray(fit + _noise_floor(y - fit, FLOOR_WINDOW), dtype=float)
 
 
 def noise_sigma(y: FloatArray) -> float:
@@ -295,8 +383,6 @@ def local_noise_sigma(y: FloatArray, window: int = 201) -> FloatArray:
     Used for peak detection when intensities are not raw counts (no Poisson σ), so that a
     noisier region does not produce false peaks under a single global threshold.
     """
-    from scipy.ndimage import median_filter
-
     d = np.abs(np.diff(np.asarray(y, dtype=float)))
     if d.size == 0:
         return np.zeros_like(np.asarray(y, dtype=float))

@@ -1,6 +1,8 @@
 """Offscreen GUI smoke tests (QT_QPA_PLATFORM=offscreen). Real-display checks are manual."""
 
+import json
 import os
+import random
 
 import pytest
 
@@ -8,10 +10,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 pytestmark = pytest.mark.gui
 
+import shiboken6  # noqa: E402
+from PySide6.QtCore import QThread  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from xrd_analyzer.io import ReadOptions  # noqa: E402
 from xrd_analyzer.ui.main_window import MainWindow  # noqa: E402
+from xrd_analyzer.ui.workers import make_worker  # noqa: E402
 
 
 @pytest.fixture
@@ -146,3 +151,176 @@ def test_gui_smoke_command(qtbot, tmp_path):
     out = tmp_path / "gui.json"
     assert main(["gui-smoke", "--offscreen", "--out", str(out)]) == 0
     assert json.loads(out.read_text("utf-8"))["gui_smoke"] == "PASS"
+
+
+def _real_style_xy(tmp_path):
+    p = tmp_path / "scan_exported.xy"
+    header = (
+        '\'Id: "S" Anode: "Cu" Wavelength: "1.5406" Scantype: "2Theta (Coupled TwoTheta/Theta)" '
+        'TimePerStep: "28.548" \n'
+    )
+    rows = "\n".join(f"{5 + 0.01 * i:.5f} {(70 + i % 9) / 28.548:.3f}" for i in range(300))
+    p.write_text(header + rows + "\n", encoding="utf-8")
+    return p
+
+
+def test_import_dialog_never_defaults_to_counts(win, tmp_path):
+    from xrd_analyzer.io import probe_file
+    from xrd_analyzer.ui.dialogs import ImportDialog
+
+    p = tmp_path / "plain.xy"
+    p.write_text("\n".join(f"{20 + i * 0.1:.1f} {i}" for i in range(50)) + "\n", encoding="utf-8")
+    dlg = ImportDialog(probe_file(p), "confirm", win)
+    assert dlg.iunit.currentIndex() == -1
+    dlg._accept()
+    assert "intensity unit" in dlg.error.text() and not dlg.result()
+    dlg.iunit.setCurrentIndex(dlg.iunit.findData("counts"))
+    dlg._accept()
+    assert dlg.options().intensity_unit == "counts" and dlg.result()
+
+
+def test_import_dialog_blocks_counts_for_fractional_values(win, tmp_path):
+    from xrd_analyzer.io import probe_file
+    from xrd_analyzer.ui.dialogs import ImportDialog
+
+    dlg = ImportDialog(probe_file(_real_style_xy(tmp_path)), "confirm", win)
+    assert not dlg.iunit.model().item(dlg.iunit.findData("counts")).isEnabled()
+    assert dlg.iunit.currentData() == "cps"  # the header and the values point to count rates
+    assert dlg.options().intensity_unit == "cps"
+
+
+def test_import_dialog_keeps_a_declared_unit_unless_the_values_rule_it_out(win, tmp_path):
+    from xrd_analyzer.io import probe_file
+    from xrd_analyzer.ui.dialogs import ImportDialog
+
+    whole = tmp_path / "w.csv"
+    whole.write_text("2theta_deg,counts\n" + "\n".join(f"{20 + i},{i}" for i in range(9)), "utf-8")
+    assert ImportDialog(probe_file(whole), "m", win).iunit.currentData() == "counts"
+    fractional = tmp_path / "f.csv"
+    fractional.write_text(
+        "2theta_deg,counts\n" + "\n".join(f"{20 + i},{i}.5" for i in range(9)), "utf-8"
+    )
+    assert ImportDialog(probe_file(fractional), "m", win).iunit.currentIndex() == -1
+
+
+def test_real_style_export_finds_nothing_false_with_the_offered_unit(win, qtbot, tmp_path):
+    from xrd_analyzer.io import probe_file
+    from xrd_analyzer.ui.dialogs import ImportDialog
+
+    p = _real_style_xy(tmp_path)
+    dlg = ImportDialog(probe_file(p), "confirm", win)
+    dlg._accept()
+    assert win.open_file(str(p), dlg.options()) == 0
+    assert win.current().pattern.intensity_unit == "cps"
+    assert "file records wavelength 1.5406" in win.log_view.toPlainText()
+
+
+def test_brml_opens_without_a_dialog(win, tmp_path):
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parents[1] / "unit"))
+    from test_bruker_brml import make_brml
+
+    path = make_brml(tmp_path / "scan.brml")
+    assert win.open_file(str(path), ask=False) == 0
+    item = win.current()
+    assert item.pattern.counts_like and item.pattern.parser == "bruker-brml"
+
+
+def test_origin_folder_from_the_current_dataset(win, qtbot, tmp_path):
+    win.open_example("si_like")
+    with pytest.raises(ValueError, match="nothing analysed"):
+        win.export_origin_to(str(tmp_path))
+    win.apply_and_run()
+    _wait(qtbot, win)
+    bundle = win.export_origin_to(str(tmp_path))
+    assert bundle.launcher.is_file() and (bundle.folder / "pattern_01.csv").is_file()
+    assert "for Origin" in win.log_view.toPlainText()
+
+
+def test_origin_folder_holds_every_checked_analysed_dataset(win, qtbot, tmp_path):
+    for key in ("si_like", "nano_fcc"):
+        win.open_example(key)
+        win.apply_and_run()
+        _wait(qtbot, win)
+    bundle = win.export_origin_to(str(tmp_path))
+    assert (bundle.folder / "pattern_02.csv").is_file()
+    assert bundle.project.name == "xrd_analysis.opju"
+
+
+def test_the_worker_thread_does_not_delete_the_worker(win, qtbot):
+    """Its thread deleting it raced the GUI dropping its reference: a rare segfault in the app."""
+    thread, worker = make_worker(win, lambda progress, cancel: 1)
+    with qtbot.waitSignal(thread.finished, timeout=30000):
+        thread.start()
+    assert thread.wait(30000)
+    assert shiboken6.isValid(worker)
+
+
+def test_repeated_runs_leave_no_thread_behind(win, qtbot):
+    before = len(win.findChildren(QThread))
+    for _ in range(100):
+        win._start(lambda progress, cancel: 1, lambda out: None)
+        _wait(qtbot, win)
+    qtbot.waitUntil(lambda: len(win.findChildren(QThread)) <= before, timeout=30000)
+
+
+def test_damaged_projects_open_without_an_exception(win, qtbot, tmp_path):
+    """pytest-qt fails this test if a slot or a paint event raises, as well as on a direct raise."""
+    win.open_example("si_like")
+    win.apply_and_run()
+    _wait(qtbot, win)
+    good = tmp_path / "good.xrdproj.json"
+    win.save_project_to(str(good))
+    seed = json.loads(good.read_text(encoding="utf-8"))
+    settings = seed["plot_settings"]
+    rng = random.Random(5)
+    junk = (None, 0, -1, 1.5, "", "x", [], {}, [1], {"a": 1}, True, 10**30, 1e308)
+    path = tmp_path / "p.xrdproj.json"
+    fields = [*settings, "active"]
+    for _ in range(30):
+        data = json.loads(json.dumps(seed))
+        for _ in range(rng.choice((1, 2, 3))):
+            field = rng.choice(fields)
+            value = rng.choice(junk)
+            if field == "active":
+                data["active"] = value
+            else:
+                data["plot_settings"][field] = value
+        if rng.random() < 0.2:
+            data["plot_settings"] = rng.choice(junk)
+        path.write_text(json.dumps(data), encoding="utf-8")
+        assert win.open_project_from(str(path)) == []
+        qtbot.wait(1)
+        win.apply_and_run()
+        _wait(qtbot, win)
+    assert win.table.rowCount() == 6
+
+
+def test_a_project_with_an_invalid_recipe_reports_it_and_opens_the_rest(win, tmp_path):
+    win.open_example("si_like")
+    win.open_example("nano_fcc")
+    good = tmp_path / "good.xrdproj.json"
+    win.save_project_to(str(good))
+    data = json.loads(good.read_text(encoding="utf-8"))
+    data["entries"][0]["recipe"]["preprocess"]["snip_iterations"] = "many"
+    good.write_text(json.dumps(data), encoding="utf-8")
+    before = win.data_list.count()
+    problems = win.open_project_from(str(good))
+    assert len(problems) == 1 and "invalid recipe" in problems[0]
+    assert win.data_list.count() == before + 1
+
+
+def test_a_known_problem_is_reported_without_a_traceback(win, qtbot, tmp_path):
+    path = tmp_path / "scan.csv"
+    path.write_text(
+        "2theta_deg,intensity_counts\n"
+        + "\n".join(f"{20 + i * 0.1:.1f},{i % 7}" for i in range(50)),
+        encoding="utf-8",
+    )
+    win.open_file(str(path))
+    win.apply_and_run()
+    _wait(qtbot, win)
+    log = win.log_view.toPlainText()
+    assert "wavelength" in log and "Traceback" not in log and 'File "' not in log

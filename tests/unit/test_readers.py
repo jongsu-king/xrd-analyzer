@@ -16,6 +16,7 @@ from xrd_analyzer.io.readers import classify_column
 from xrd_analyzer.models.dataset import (
     SYNTHETIC_ONLY,
     UNSUPPORTED,
+    VERIFIED_NATIVE,
     XRDPattern,
     sha256_file,
 )
@@ -139,7 +140,7 @@ def test_quality_flags_for_odd_but_valid_data(write_text):
     assert "duplicate_2theta" in read_pattern(write_text("dup.csv", dup)).quality_flags
 
 
-@pytest.mark.parametrize("ext", [".xrdml", ".ras", ".rasx", ".raw", ".brml", ".udf"])
+@pytest.mark.parametrize("ext", [".xrdml", ".ras", ".rasx", ".raw", ".udf"])
 def test_vendor_formats_are_refused(write_text, ext):
     p = write_text("v" + ext, "<xml/>")
     with pytest.raises(UnsupportedFormatError, match="UNSUPPORTED"):
@@ -155,7 +156,10 @@ def test_unknown_extension(write_text):
 def test_format_table_is_honest():
     table = {f["parser"]: f["status"] for f in list_formats()}
     assert table["delimited-text"] == SYNTHETIC_ONLY
-    assert all(v == UNSUPPORTED for k, v in table.items() if k != "delimited-text")
+    assert table["bruker-brml"] == VERIFIED_NATIVE
+    assert all(
+        v == UNSUPPORTED for k, v in table.items() if k not in {"delimited-text", "bruker-brml"}
+    )
 
 
 def test_raw_data_is_immutable_and_file_untouched(si_csv):

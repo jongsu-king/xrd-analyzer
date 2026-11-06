@@ -140,6 +140,8 @@ class AnalysisRecipe:
         if s.instrument_mode == "caglioti" and None in (s.caglioti_U, s.caglioti_V, s.caglioti_W):
             errs.append("Caglioti instrumental broadening needs U, V and W (deg²)")
         pk = self.peaks
+        if pk.prominence_sigma <= 0:
+            errs.append("peak significance threshold must be > 0 (× σ)")
         if pk.max_width_deg is not None and pk.max_width_deg <= pk.min_width_deg:
             errs.append("maximum peak width must exceed the minimum peak width")
         if s.wh_min_peaks < 3:
@@ -157,7 +159,7 @@ class AnalysisRecipe:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AnalysisRecipe:
-        if data.get("format") != RECIPE_FORMAT:
+        if not isinstance(data, dict) or data.get("format") != RECIPE_FORMAT:
             raise ValueError("not an XRD Analyzer recipe (missing 'format': 'xrd-analyzer-recipe')")
         if data.get("version") != RECIPE_VERSION:
             raise ValueError(f"unsupported recipe version {data.get('version')!r}")

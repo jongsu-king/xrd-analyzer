@@ -17,6 +17,18 @@ SPEC_DOCUMENTED = "SPEC_DOCUMENTED"  # implemented from a published spec, no rea
 SYNTHETIC_ONLY = "SYNTHETIC_ONLY"  # tested only with synthetic fixtures
 UNSUPPORTED = "UNSUPPORTED"
 
+# What each status means for the person reading a report. The status describes the reader,
+# not the data: real measurements read by a SYNTHETIC_ONLY reader are still real.
+FORMAT_STATUS_TEXT = {
+    VERIFIED_NATIVE: "reader checked against real instrument files",
+    SPEC_DOCUMENTED: "reader follows a published specification, no real file checked",
+    SYNTHETIC_ONLY: "reader tested with synthetic files only; check the import against your data",
+    UNSUPPORTED: "format not supported",
+}
+
+# Intensity units meaning raw detector counts (Poisson statistics apply).
+COUNT_UNITS = frozenset({"counts", "count", "cts"})
+
 
 def sha256_file(path: str) -> str:
     h = hashlib.sha256()
@@ -61,6 +73,8 @@ class XRDPattern:
     quality_flags: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.intensity_unit, str) or not isinstance(self.metadata, Mapping):
+            raise ValueError("intensity_unit must be text and metadata an object")
         x = _frozen_copy(self.two_theta_deg)
         y = _frozen_copy(self.intensity)
         if x.ndim != 1 or y.ndim != 1:
@@ -81,7 +95,7 @@ class XRDPattern:
     @property
     def counts_like(self) -> bool:
         """True if intensities are raw counts (Poisson weighting is then meaningful)."""
-        return self.intensity_unit.strip().lower() in {"counts", "count", "cts"}
+        return self.intensity_unit.strip().lower() in COUNT_UNITS
 
     def summary(self) -> dict[str, Any]:
         x = self.two_theta_deg

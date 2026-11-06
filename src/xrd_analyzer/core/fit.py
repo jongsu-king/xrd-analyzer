@@ -23,6 +23,11 @@ from .uncertainty import covariance_from_jacobian, num_grad, propagate, std_from
 
 FloatArray = NDArray[np.float64]
 
+# Below this reduced χ² the assumed σ is too large, which is what count rates labelled as
+# counts look like. Small windows scatter widely, so it needs enough degrees of freedom.
+LOW_CHI2_RED = 0.5
+LOW_CHI2_MIN_DOF = 20
+
 
 class AnalysisCancelled(RuntimeError):
     pass
@@ -50,6 +55,8 @@ class PeakFit:
     gamma_err: float | None = None
     doublet: bool = False
     flags: list[str] = field(default_factory=list)
+    # √Δχ²: how much worse the fit gets without this peak, in σ, over the whole fit window
+    significance: float | None = None
 
     @property
     def ok(self) -> bool:
@@ -223,15 +230,17 @@ def fit_peaks(
             w0 = min(max(c.fwhm_est_deg, 2 * step), width_cap / 2)
             h0 = max(float(np.interp(c.position_deg, xs, ys)) - bg0, 1e-6 * ymax)
             dc = max(w0, 2 * step)
+            # never past the data: a centre there would be extrapolated, not measured
+            c_lo, c_hi = max(c.position_deg - dc, x[0]), min(c.position_deg + dc, x[-1])
             if profile == "pseudo_voigt":
                 p0 += [c.position_deg, h0, w0, 0.5]
-                lb += [c.position_deg - dc, 0.0, 0.5 * step, 0.0]
-                ub += [c.position_deg + dc, 20 * ymax, width_cap, 1.0]
+                lb += [c_lo, 0.0, 0.5 * step, 0.0]
+                ub += [c_hi, 20 * ymax, width_cap, 1.0]
             else:
                 a0, s0, g0 = profiles.voigt_params_from_fwhm(w0, h0)
                 p0 += [c.position_deg, a0, s0, g0]
-                lb += [c.position_deg - dc, 0.0, 0.1 * step, 0.0]
-                ub += [c.position_deg + dc, 20 * ymax * width_cap, width_cap, width_cap]
+                lb += [c_lo, 0.0, 0.1 * step, 0.0]
+                ub += [c_hi, 20 * ymax * width_cap, width_cap, width_cap]
         if nb >= 1:
             p0.append(bg0)
             lb.append(-np.inf)
@@ -307,6 +316,8 @@ def fit_peaks(
             gflags.append("not_converged")
         if sigma is not None and math.isfinite(chi2_red) and chi2_red > 3:
             gflags.append("chi2_red>3 (model or weighting inadequate)")
+        if sigma is not None and dof >= LOW_CHI2_MIN_DOF and chi2_red < LOW_CHI2_RED:
+            gflags.append("chi2_red<0.5 (σ too large: are these really raw counts?)")
         at_bound = res.active_mask != 0
         bg = [float(v) for v in p[4 * npk :]]
         result.groups.append(
@@ -345,6 +356,9 @@ def fit_peaks(
                 pf.flags.append("width_at_bound")
             if at_bound[b + 1]:
                 pf.flags.append("amplitude_at_bound")
+            # active_mask is unreliable for trf, whose iterates stay strictly inside the bounds
+            if at_bound[b + 3] or (profile == "pseudo_voigt" and not 1e-3 < pk[3] < 0.999):
+                pf.flags.append("shape_at_bound")  # η or the Lorentzian width γ
             want = window_fwhm_factor * c.fwhm_est_deg
             if c.position_deg - want < x[0] or c.position_deg + want > x[-1]:
                 pf.flags.append("window_truncated_at_scan_edge")

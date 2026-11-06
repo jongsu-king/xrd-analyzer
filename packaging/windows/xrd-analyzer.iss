@@ -31,6 +31,7 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 ChangesEnvironment=yes
+ChangesAssociations=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -41,6 +42,7 @@ Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "addtopath"; Description: "Add the command-line tool (xrd-analyzer-cli) to PATH"; Flags: unchecked
+Name: "originlink"; Description: "Open exported folders for OriginLab Origin by double-clicking their .xrdorigin file"
 
 [Files]
 Source: "{#SrcDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -51,6 +53,10 @@ Name: "{group}\Uninstall XRD Analyzer"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\XRD Analyzer"; Filename: "{app}\XRD-Analyzer.exe"; Tasks: desktopicon
 
 [Registry]
+Root: HKA; Subkey: "Software\Classes\.xrdorigin"; ValueType: string; ValueData: "XRDAnalyzer.OriginFolder"; Flags: uninsdeletekey; Tasks: originlink
+Root: HKA; Subkey: "Software\Classes\XRDAnalyzer.OriginFolder"; ValueType: string; ValueData: "XRD Analyzer results for Origin"; Flags: uninsdeletekey; Tasks: originlink
+Root: HKA; Subkey: "Software\Classes\XRDAnalyzer.OriginFolder\DefaultIcon"; ValueType: string; ValueData: "{app}\XRD-Analyzer.exe,0"; Tasks: originlink
+Root: HKA; Subkey: "Software\Classes\XRDAnalyzer.OriginFolder\shell\open\command"; ValueType: string; ValueData: """{app}\xrd-analyzer-cli.exe"" open-in-origin ""%1"""; Tasks: originlink
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Tasks: addtopath; Check: NeedsAddPath(ExpandConstant('{app}'))
 
 [Run]

@@ -24,6 +24,7 @@ from matplotlib.figure import Figure
 
 from .. import APP_NAME, DISCLAIMER_EN, DISCLAIMER_KO
 from ..core.analysis import AnalysisResult
+from ..models.dataset import FORMAT_STATUS_TEXT
 from .figures import PlotSettings, draw_result, draw_wh
 
 CJK_FONT_CANDIDATES = (
@@ -71,7 +72,8 @@ def summary_lines(result: AnalysisResult) -> list[str]:
         f"2θ: {_fmt(ds.get('two_theta_min_deg'), 3)}–{_fmt(ds.get('two_theta_max_deg'), 3)}°",
         f"Source: {ds.get('source_path') or '(in memory)'}",
         f"SHA-256: {ds.get('sha256')}",
-        f"Parser: {ds.get('parser')} [{ds.get('format_status')}]   "
+        f"Parser: {ds.get('parser')} [{ds.get('format_status')}: "
+        f"{FORMAT_STATUS_TEXT.get(str(ds.get('format_status')), 'unknown status')}]   "
         f"intensity unit: {ds.get('intensity_unit')}",
         f"Quality flags: {', '.join(ds.get('quality_flags') or []) or 'none'}",
         "",

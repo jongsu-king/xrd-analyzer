@@ -43,6 +43,7 @@ def run_selftest() -> dict[str, Any]:
     from .core.analysis import run_analysis
     from .core.synthetic import make_example
     from .reports.exports import export_all
+    from .reports.origin import write_origin_bundle
 
     checks: list[dict[str, Any]] = []
 
@@ -95,6 +96,12 @@ def run_selftest() -> dict[str, Any]:
                         "exports (CSV, JSON, PNG, SVG, HTML, PDF)",
                         suffixes == [".csv", ".html", ".json", ".pdf", ".png", ".svg"] and sizes_ok,
                         ", ".join(suffixes),
+                    )
+                    bundle = write_origin_bundle([res], Path(tmp) / "origin")
+                    check(
+                        "Origin folder (data, script, launcher)",
+                        bundle.script.stat().st_size > 0 and bundle.launcher.stat().st_size > 0,
+                        bundle.script.name,
                     )
     except Exception as exc:  # report, never crash the self-test
         check("unexpected error", False, f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}")

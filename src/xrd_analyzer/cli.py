@@ -18,8 +18,9 @@ from .core.reference import ReferencePattern, load_reference_csv, reference_from
 from .core.synthetic import EXAMPLES, make_example
 from .io import ReadOptions, XRDFormatError, list_formats, read_pattern
 from .models.recipe import AnalysisRecipe
-from .models.units import WAVELENGTH_PRESETS, preset
+from .models.units import CU_KA1_A, CU_KA2_A, WAVELENGTH_PRESETS, preset
 from .reports.exports import export_all, write_peak_table_csv
+from .reports.origin import LAUNCHER_NAME, OriginUnavailable, run_launcher, write_origin_bundle
 
 EXIT_INPUT = 2
 EXIT_ANALYSIS = 3
@@ -78,10 +79,14 @@ def _recipe_from_args(a: argparse.Namespace) -> AnalysisRecipe:
         pp.wavelength_A = a.wavelength
     if a.ka2 is not None:
         pp.kalpha2_mode = a.ka2
-        if a.ka2 != "none" and pp.wavelength2_A is None:
-            pp.wavelength2_A = a.wavelength2
     if a.wavelength2 is not None:
         pp.wavelength2_A = a.wavelength2
+    elif a.ka2 not in (None, "none") and pp.wavelength2_A is None and a.wavelength == CU_KA1_A:
+        pp.wavelength2_A = CU_KA2_A  # the Cu Kα1 preset has a known Kα2 partner
+    if a.smooth:
+        pp.smoothing_enabled = True
+    if a.prominence_sigma is not None:
+        r.peaks.prominence_sigma = a.prominence_sigma
     if a.baseline is not None:
         pp.baseline_method = a.baseline
     if a.duplicates is not None:
@@ -145,6 +150,12 @@ def _add_analysis_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--drop-nonfinite", action="store_true")
     p.add_argument("--duplicates", choices=["error", "average", "keep_first"])
     p.add_argument("--baseline", choices=["none", "snip", "als", "poly", "masked"])
+    p.add_argument("--smooth", action="store_true", help="Savitzky–Golay smoothing for detection")
+    p.add_argument(
+        "--prominence-sigma",
+        type=float,
+        help="peak significance threshold k, in σ (default 6)",
+    )
     p.add_argument("--profile", choices=["pseudo_voigt", "voigt"])
     p.add_argument("--K", type=float, help="Scherrer shape factor")
     p.add_argument("--inst-fwhm", type=float, help="constant instrumental FWHM (deg 2θ)")
@@ -158,6 +169,11 @@ def _add_analysis_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--out", required=True, help="output directory")
     p.add_argument("--no-pdf", action="store_true")
+    p.add_argument(
+        "--origin",
+        action="store_true",
+        help=f"also write OUT/origin, with {LAUNCHER_NAME} to build an Origin project (.opju)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -181,10 +197,20 @@ def build_parser() -> argparse.ArgumentParser:
     pg = sub.add_parser("gui-smoke", help="open the GUI, analyse an example, close (build check)")
     pg.add_argument("--out", help="also write the JSON report to this file")
     pg.add_argument("--offscreen", action="store_true", help="no display needed")
+    po = sub.add_parser("open-in-origin", help="start Origin on a folder written with --origin")
+    po.add_argument("path", help="the folder or its .xrdorigin file")
     return ap
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except OSError as exc:  # an output file open in another program, a full disk
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_INPUT
+
+
+def _main(argv: Sequence[str] | None) -> int:
     a = build_parser().parse_args(argv)
     if a.cmd == "formats":
         for f in list_formats():
@@ -210,6 +236,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .ui.app import main as gui_main
 
         return gui_main()
+    if a.cmd == "open-in-origin":
+        try:
+            return run_launcher(a.path)
+        except OriginUnavailable as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return EXIT_INPUT
     try:
         recipe = _recipe_from_args(a)
         refs = _references(a, recipe.preprocess.wavelength_A)
@@ -234,6 +266,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             res = run_analysis(patterns[0], recipe, references=refs)
             for p in export_all(res, out, pdf=not a.no_pdf):
                 print(p)
+            if a.origin:
+                print(write_origin_bundle([res], out / "origin").launcher)
             for w in res.warnings:
                 print(f"warning: {w}", file=sys.stderr)
             return 0
@@ -266,6 +300,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     (out / "batch_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(out / "batch_summary.json")
+    analysed = [it.result for it in items if it.result is not None]
+    if a.origin and analysed:
+        print(write_origin_bundle(analysed, out / "origin").launcher)
     return EXIT_ANALYSIS if failed else 0
 
 

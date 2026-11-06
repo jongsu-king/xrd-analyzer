@@ -101,8 +101,10 @@ xrd-analyzer-gui
 2. **Open your data:** *File → Open data…* (Ctrl+O) or drag files onto the window. If the
    column header does not state the axis quantity and unit unambiguously, a dialog shows a
    preview and asks you to confirm the **2θ column**, the **intensity column**, whether the
-   axis is **2θ or θ**, the **unit** (degree/radian) and the **intensity unit** (counts, cps
-   or a.u.).
+   axis is **2θ or θ**, the **unit** (degree/radian) and the **intensity unit**. No intensity
+   unit is pre-selected unless the file points to one, because *counts* turns on Poisson
+   weights: use it only for raw detector counts, *cps* for count rates and *a.u.* if unsure.
+   Bruker `.brml` files state all of this themselves and open without the dialog.
 3. **Set the wavelength:** in *Parameters → Preprocess*, choose *Cu Kα1 (1.5405929 Å)*, the
    weighted Cu Kα average, or *custom* and enter your calibrated value. Analysis refuses to
    run without a wavelength.
@@ -146,15 +148,20 @@ The interface is available in **Korean and English** (*View* menu) and in light 
 ### Supported formats
 | Format | Status | Meaning |
 |---|---|---|
-| CSV, TXT, XY, DAT, TSV with a 2θ column and an intensity column | `SYNTHETIC_ONLY` | Implemented and tested with synthetic fixtures. Export your scan as text from the instrument software |
-| Rigaku `.ras`/`.rasx`, Malvern Panalytical `.xrdml`, Bruker `.raw`/`.brml`, Philips `.udf` | `UNSUPPORTED` | Recognised and **refused with a clear message**. Vendor parsers are added only after validation against real files (see [docs/adapters.md](docs/adapters.md)) |
+| CSV, TXT, XY, DAT, TSV with a 2θ column and an intensity column | `SYNTHETIC_ONLY` | Implemented and tested with synthetic fixtures. The Bruker text export below is the exception |
+| Bruker text export (`.xy` with the `'Id: … TimePerStep: …` header line) | `VERIFIED_NATIVE` | Read by the text reader and compared with the same scans' `.brml` files, from one instrument and software version; the header does not record the version. Values are count rates, so choose `cps`; the import dialog offers it when the values prove it |
+| Bruker `.brml`, coupled 2θ/θ PSD fast scan, DIFFRAC version 8.6.3.0 | `VERIFIED_NATIVE` | Raw counts, so Poisson weights apply. Checked on four real D2 PHASER scans. Other versions, scan types, multi-scan files and absorbers are **refused with a clear message** |
+| Rigaku `.ras`/`.rasx`, Malvern Panalytical `.xrdml`, Bruker `.raw`, Philips `.udf` | `UNSUPPORTED` | Recognised and **refused with a clear message**. Vendor parsers are added only after validation against real files ([docs/adapters.md](docs/adapters.md)) |
 
 ### Text-file rules
 - **Delimiters:** tab, semicolon, comma or whitespace, detected per file. Decimal commas are
   detected and rejected with a message.
 - **Encodings:** UTF-8 (with or without BOM), CP949 and Latin-1.
-- **Comment and metadata lines** start with `#`, `;`, `!`, `//` or `%`. `key: value` and
-  `key = value` are stored as metadata, and so are `key,value` lines before the header.
+- **Comment and metadata lines** start with `#`, `;`, `!`, `//`, `%` or `'`. `key: value` and
+  `key = value` are stored as metadata, and so are `key,value` lines before the header. A
+  line holding several `key: "value"` pairs (Bruker exports) gives one entry per pair.
+- **Raw counts must be whole numbers.** Fractional values labelled as counts are refused,
+  because Poisson weights would be wrong. Choose `cps` or `a.u.` for such data.
 - **Recognised column headers** (examples): `2theta_deg`, `two_theta_deg`, `2θ (°)`,
   `2-Theta [deg]`, `2θ / rad`, `intensity_counts`, `Intensity (a.u.)`, `counts/s`, `cps`,
   `Intensity / counts`. Columns named like uncertainties (`error`, `esd`, `sigma`,
@@ -191,10 +198,10 @@ The processing order is fixed and recorded in every result:
 | 3. Measured background | empty-holder or dark scan, scale factor | Interpolated onto the sample grid without extrapolation; the units must match; variances are added |
 | 4. Kα2 | `none`, `strip` (Rachinger), `fit_doublet` | `fit_doublet` keeps the Poisson noise model and is preferred. `strip` correlates noise, so its uncertainties are marked approximate. With `none`, resolved Kα2 lines appear as extra peaks |
 | 5. Smoothing | Savitzky–Golay window/order | Used **only for peak detection**; fits always use the unsmoothed data |
-| 6. Baseline | SNIP, ALS, iterative polynomial, peak-masked Whittaker, none | SNIP is robust for flat or sloped backgrounds. *Peak-masked Whittaker* fits a smoother through non-peak regions and keeps broad **amorphous humps** in the baseline without absorbing peak tails |
-| 7. Peak detection | threshold (× σ), minimum distance, minimum/maximum width, maximum number | σ is Poisson √counts for counts, otherwise a rolling noise estimate. Use a maximum width to stop a broad hump being taken as a peak |
+| 6. Baseline | SNIP, ALS, iterative polynomial, peak-masked Whittaker, none | SNIP is robust for flat or sloped backgrounds. *Peak-masked Whittaker* fits a smoother through non-peak regions and keeps broad **amorphous humps** in the baseline without absorbing peak tails. SNIP, ALS and polynomial follow the bottom of the noise, so the noise-floor offset is added back and the baseline tracks the mean background. **For peaks wider than about 0.5° use peak-masked Whittaker:** SNIP and ALS take part of them into the baseline. Such a peak gets the flag `baseline_absorbs_peak` and a warning. Settings count points at a step of about 0.01°; finer scans are averaged to that for the baseline |
+| 7. Peak detection | threshold k (× σ), minimum distance, minimum/maximum width, maximum number | Candidates come from single points and from Gaussian-smoothed copies of the data (FWHM 4–32 steps), each against the σ of that signal. σ is Poisson √counts for counts, otherwise a rolling noise estimate. Use a maximum width to stop a broad hump being taken as a peak |
 | 8. Manual edits | add at 2θ / remove near 2θ | Stored in the recipe and replayed exactly |
-| 9. Profile fitting | pseudo-Voigt or Voigt; local background none/constant/linear; window × FWHM | Overlapping peaks are fitted together. Auto-detected peaks that the fit does not confirm are rejected and the rest refitted |
+| 9. Profile fitting | pseudo-Voigt or Voigt; local background none/constant/linear; window × FWHM | Overlapping peaks are fitted together. An auto-detected peak is kept only if the whole peak is significant (√Δχ² ≥ k, reported as `significance_sigma`). Others are rejected and the rest refitted, so a weak peak spread over many points counts as much as a tall narrow one |
 | 10. Crystallography | wavelength, K, instrumental broadening, correction (quadratic/linear) | See [§8](#8-scientific-basis). Every value carries its formula, assumptions and status |
 | 11. Reference comparison | computed cubic lattice (P, I, F, diamond) or your own licensed CSV; tolerance | Position-only **candidates** with a confidence level. Phase fractions are never reported |
 
@@ -218,11 +225,34 @@ deviation of 2θ, d and FWHM.
 | `<name>_report.html` | Self-contained report (embedded figures, peak table, summary) |
 | `<name>_report.pdf` | Multi-page report: summary and provenance, figure, peak table, Williamson–Hall plot. Korean text is supported when a CJK font is installed |
 
+### Opening results in OriginLab Origin
+*File → Open in Origin…* (or `--origin` on the command line) writes an `origin` folder with the
+data as CSV, a LabTalk script and `open_in_origin.bat`. On a Windows PC with Origin, double-click
+`open_in_origin.bat` (or the `.xrdorigin` file, if the Windows installer registered that file
+type). Origin opens, builds a workbook for the pattern and one for the peaks, a graph with the
+data, baseline, fit and peak markers, an overlay when there are several datasets, and saves
+a project (`.opju`) in that folder. From then on, the `.opju` opens like any Origin project.
+
+- Origin runs on Windows only. From a Mac or Linux PC, copy the folder to the Windows PC.
+- `.opju` is not a public format, so this program cannot write it itself. Origin makes the file.
+- If a step fails in Origin, the others still run, and `xrd_origin_log.txt` in the folder says
+  which one.
+- A double-clicked `.xrdorigin` file starts only files this version wrote itself. For a folder
+  from an older version or another person, export again, or run the `.bat` if you trust it.
+- **Not yet tested with real Origin.** The commands follow OriginLab's documentation, and the
+  launcher is tested on Windows with a stand-in program. If it fails, please report the contents
+  of `xrd_origin_log.txt` and any error in Origin's Script Window.
+
 **Status values:** `OK`, `WARNING` (computed, but read the reason) and `NOT_CALCULABLE`
 (not computed; the reason is given). **Peak flags** include `not_converged`,
 `parameters_not_identifiable`, `center_at_bound`, `width_at_bound`,
-`undersampled (FWHM < 3 steps)`, `low_significance (height < 3σ)` and
-`window_truncated_at_scan_edge`.
+`shape_at_bound` (η or γ at its limit), `poor_profile_fit` (the profile does not describe the
+peak, so the shape error exceeds the reported σ), `undersampled (FWHM < 3 steps)`,
+`low_significance (height < 3σ)` and `window_truncated_at_scan_edge`.
+
+**With the doublet fit, `height` and `area` describe the Kα1 component only.** The area of the
+whole reflection is (1 + R) × area, normally 1.5 × area. This is stated in the notes and at the
+top of `<name>_peaks.csv`.
 
 ---
 
@@ -238,6 +268,7 @@ xrd-analyzer analyze FILE [options] --out DIR
 xrd-analyzer batch FILE... [options] --out DIR
 xrd-analyzer selftest [--out report.json]  verify this installation
 xrd-analyzer gui-smoke [--offscreen]       open the GUI, analyse an example, close
+xrd-analyzer open-in-origin PATH           start Origin on a folder written with --origin (Windows)
 xrd-analyzer gui                           start the GUI (also: no arguments)
 ```
 
@@ -245,19 +276,21 @@ xrd-analyzer gui                           start the GUI (also: no arguments)
 |---|---|
 | `--recipe FILE` | start from a saved recipe (other options override it) |
 | `--wavelength VALUE` | Å, or `cu_ka1` / `cu_ka_avg` |
-| `--wavelength2 VALUE`, `--ka2 none\|strip\|fit_doublet` | Kα2 handling |
+| `--wavelength2 VALUE`, `--ka2 none\|strip\|fit_doublet` | Kα2 handling. With `--wavelength cu_ka1` the matching Kα2 value is filled in |
 | `--axis 2theta-deg\|2theta-rad\|theta-deg\|theta-rad` | confirm the x column quantity and unit |
 | `--x-col N`, `--y-col N` | 0-based column indices |
 | `--intensity-unit counts\|cps\|a.u.` | intensity unit |
 | `--drop-nonfinite` | drop NaN/Inf rows (recorded as a quality flag) |
 | `--duplicates error\|average\|keep_first` | duplicate-2θ policy |
 | `--baseline none\|snip\|als\|poly\|masked` | baseline method |
+| `--prominence-sigma K`, `--smooth` | peak significance threshold (default 6); Savitzky–Golay smoothing for detection |
 | `--profile pseudo_voigt\|voigt` | peak profile |
 | `--K VALUE`, `--inst-fwhm DEG` | Scherrer shape factor and constant instrumental FWHM (2θ) |
 | `--add-peak DEG`, `--remove-peak DEG` | manual peak edits (repeatable) |
 | `--reference-cubic a,centering[,name]` | computed reference, e.g. `5.431020511,diamond,Si` |
 | `--reference-csv FILE` | reference CSV (`d_A` or `two_theta_deg` + `# wavelength_A:`) |
 | `--out DIR`, `--no-pdf` | output folder; skip the PDF report |
+| `--origin` | also write `DIR/origin`, from which Origin builds a project (see [§5](#5-results-and-exported-files)). With `batch`, one project for all files |
 
 Exit codes: `0` success · `1` self-test failed · `2` input error (format, or axis/column
 confirmation needed) · `3` analysis error or partial batch failure.
@@ -302,16 +335,20 @@ instrument. Full details are in [docs/SPEC.md](docs/SPEC.md).
 ---
 
 ## 9. Validation
-All numerical validation uses **synthetic patterns with known answers** and analytic checks
+Numerical accuracy is checked on **synthetic patterns with known answers** and analytic checks.
+Reading, noise model, peak positions and peak finding were also checked on four real scans
 (see [VALIDATION.md](docs/scientific_validation/VALIDATION.md)):
 
 | Example | Result |
 |---|---|
 | Si-like (Cu Kα1) | 6/6 reflections; \|Δ2θ\| ≤ 0.001°, \|Δd\| ≤ 1×10⁻⁵ Å, FWHM within 4 %; Scherrer correctly `NOT_CALCULABLE` without instrumental broadening |
 | Si-like with Kα2 (doublet fit) | 6/6 Kα1 positions within 0.001° |
-| Nanocrystalline fcc-like (D = 15 nm, ε = 1.5×10⁻³) with an amorphous hump | Williamson–Hall D = 14.96 ± 0.23 nm, ε = (1.51 ± 0.08)×10⁻³; hump separated into the baseline (≈ 5 counts error) |
+| Nanocrystalline fcc-like (D = 15 nm, ε = 1.5×10⁻³) with an amorphous hump | Williamson–Hall D = 14.99 ± 0.23 nm, ε = (1.52 ± 0.08)×10⁻³; hump separated into the baseline (≈ 5 counts error) |
 
-There are **294 automated tests**, and analysis-core coverage is 95 %. They include
+There are **410 automated tests**, 6 more that run only on Windows, and 12 comparisons with
+real files that run when `XRD_REAL_DATA_DIR` is set (real research data are not in this
+repository). Analysis-core
+coverage is 95 %. They include
 malformed and ambiguous files, NaN/Inf, duplicates, non-convergence, identifiability,
 variance propagation, provenance, the GUI (offscreen) and the command-line interface.
 Packaged builds are verified on Windows, macOS and Linux by the release workflow:
@@ -320,8 +357,13 @@ frozen self-test, GUI smoke test, and install tests of the Windows installer and
 ---
 
 ## 10. Limitations
-- No real instrument files were available during development; generic text import is
-  `SYNTHETIC_ONLY`, and vendor binary formats are unsupported.
+- Real-file checks cover one instrument and software version: four scans from a Bruker D2
+  PHASER. Other text exports are `SYNTHETIC_ONLY`, and other vendor formats are unsupported.
+- Reported σ values are statistical only. On real data the peak width and height differed
+  between repeat scans by about 2–2.5× their σ, and an asymmetric low-angle peak moved by about
+  0.01° between profile models while its σ was under 0.001°. Peak profiles are symmetric;
+  look for `poor_profile_fit`. Zero shift and sample displacement are not corrected, so
+  compare peak positions between samples only with an internal standard.
 - No rocking curves, reciprocal-space maps, XRR, 2D images or Rietveld refinement.
 - Scherrer and Williamson–Hall use FWHM (not integral breadth). Instrumental-broadening and
   wavelength uncertainties are not propagated.
@@ -342,6 +384,7 @@ frozen self-test, GUI smoke test, and install tests of the Windows installer and
 | "wavelength is not set" | Choose a preset or enter your calibrated wavelength in *Preprocess* |
 | "decimal comma detected" | Export with decimal points, or convert the file |
 | "malformed data row … after the column header" | Fix or delete the reported line; move metadata above the header |
+| "not whole numbers … cannot be raw detector counts" | The values are count rates or processed data. Choose `cps` or `a.u.`, or open the instrument's raw file |
 | Scherrer shows `NOT_CALCULABLE` | Enter K **and** the instrumental broadening measured on a line-profile standard |
 | Extra peaks next to every reflection | Your data contain Kα2. Choose *fit Kα1/Kα2 doublet* |
 | A broad hump is reported as a peak | Use the *peak-masked Whittaker* baseline and/or set a maximum peak width |
@@ -354,7 +397,7 @@ frozen self-test, GUI smoke test, and install tests of the Windows installer and
 ## 12. Development
 ```bash
 pip install -e ".[dev]"
-QT_QPA_PLATFORM=offscreen pytest            # 294 tests
+QT_QPA_PLATFORM=offscreen pytest            # 410 tests
 ruff check src tests && mypy
 python tools/generate_examples.py           # regenerate examples/synthetic
 ```

@@ -14,6 +14,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QThread, Signal
 
+from ..core.analysis import AnalysisError
 from ..core.fit import AnalysisCancelled
 
 
@@ -52,6 +53,8 @@ class Worker(QObject):
             out = self._job(progress=lambda f, m: self.progress.emit(f, m), cancel=self._checkpoint)
         except AnalysisCancelled:
             self.cancelled.emit()
+        except AnalysisError as exc:  # says what to change; a traceback would only hide that
+            self.failed.emit(str(exc))
         except Exception as exc:  # report every failure to the GUI instead of crashing
             self.failed.emit(f"{type(exc).__name__}: {exc}\n{traceback.format_exc(limit=3)}")
         else:
@@ -60,12 +63,15 @@ class Worker(QObject):
 
 def make_worker(parent: QObject, job: Callable[..., Any]) -> tuple[QThread, Worker]:
     """Create (but do NOT start) a worker thread. The caller connects its receivers first and
-    then calls ``thread.start()``, so no terminal signal can be emitted before it is heard."""
+    then calls ``thread.start()``, so no terminal signal can be emitted before it is heard.
+
+    Python owns the worker, so its thread must not delete it (``deleteLater`` on ``finished``):
+    that races the caller dropping its reference and crashes. The caller waits for the thread
+    to end before dropping the worker."""
     thread = QThread(parent)
     worker = Worker(job)
     worker.moveToThread(thread)
     thread.started.connect(worker.run)
     for sig in (worker.finished, worker.failed, worker.cancelled):
         sig.connect(thread.quit)
-    thread.finished.connect(worker.deleteLater)
     return thread, worker
