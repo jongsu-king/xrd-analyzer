@@ -372,7 +372,7 @@ any instrument vendor or institution.
 
 **Cite this software** (archived on Zenodo):
 
-> jongsu-king (2026). *XRD Analyzer: desktop and command-line analysis of 1D θ–2θ X-ray
+> Lim, J. (2026). *XRD Analyzer: desktop and command-line analysis of 1D θ–2θ X-ray
 > diffraction patterns* (v0.1.1). Zenodo. https://doi.org/10.5281/zenodo.23912325
 
 - DOI of **all versions** (always resolves to the latest): [10.5281/zenodo.23912324](https://doi.org/10.5281/zenodo.23912324)

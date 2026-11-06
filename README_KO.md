@@ -387,7 +387,7 @@ MIT 라이선스입니다([LICENSE](LICENSE)). 어떤 장비 제조사나 기관
 
 **인용 방법**(Zenodo에 보관됨):
 
-> jongsu-king (2026). *XRD Analyzer: desktop and command-line analysis of 1D θ–2θ X-ray
+> Lim, J. (2026). *XRD Analyzer: desktop and command-line analysis of 1D θ–2θ X-ray
 > diffraction patterns* (v0.1.1). Zenodo. https://doi.org/10.5281/zenodo.23912325
 
 - **모든 버전**을 가리키는 DOI(항상 최신 버전으로 연결): [10.5281/zenodo.23912324](https://doi.org/10.5281/zenodo.23912324)
