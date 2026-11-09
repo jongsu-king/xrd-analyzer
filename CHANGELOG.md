@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3 — 2026-11-09
+- Automatic updates of the installed macOS and Linux builds: the updater now falls back to
+  the system CA bundle, so it can verify GitHub's certificate (0.1.2 could not; install
+  0.1.3 once by hand on those systems). No changes to the analysis.
+
 ## 0.1.2 — 2026-11-09
 - **Automatic updates** for installed copies: a daily check of the latest GitHub release,
   download of the file for this system, SHA-256 verification against the release's

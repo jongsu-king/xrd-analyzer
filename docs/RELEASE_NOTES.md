@@ -1,19 +1,13 @@
-## XRD Analyzer 0.1.2
+## XRD Analyzer 0.1.3
 
-Desktop and command-line analyzer for 1D θ–2θ X-ray diffraction patterns. **The analysis
-is identical to 0.1.1**; this release adds automatic updates and more downloads.
+XRD Analyzer 0.1.3 fixes the automatic updates of the installed **macOS** builds (and of
+Linux builds on distributions whose certificate store is not where the bundled
+OpenSSL looks): the updater could not verify GitHub's HTTPS certificate and so never
+found a new version. It now falls back to the system's CA bundle. Nothing else changed.
 
-### New
-- **Automatic updates.** An installed copy checks GitHub once a day, downloads a newer
-  release for your system, verifies it against `SHA256SUMS.txt` and installs it when you
-  close the program (or at once with *Restart now*). *Help → Automatic updates* chooses
-  between *download and install*, *only tell me* and *off*; *Help → Check for updates…* and
-  `xrd-analyzer-cli update` check on demand. Source and pip installs are never modified.
-- **Intel Macs**: `XRD-Analyzer-0.1.2-macos-x86_64.dmg`.
-- The Linux archive includes `install.sh` / `uninstall.sh` (per-user, no root).
-- One `SHA256SUMS.txt` for every file.
+**If you installed 0.1.2 on a Mac or Linux, install 0.1.3 once by hand** - 0.1.2 cannot
+reach GitHub to update itself. Windows copies of 0.1.2 update normally. From 0.1.3 on,
+updates arrive automatically on every platform.
 
-Users of 0.1.1 install 0.1.2 once by hand (0.1.1 has no updater); later releases arrive
-automatically. `build-verification-reports.zip` holds the self-test and GUI smoke-test
-reports that each build produced on its own operating system. Full guide:
-[docs/INSTALL.md](https://github.com/jongsu-king/xrd-analyzer/blob/main/docs/INSTALL.md).
+The analysis is identical to 0.1.1/0.1.2. `build-verification-reports.zip` holds the self-test and GUI
+smoke-test reports of every build. Full guide: [docs/INSTALL.md](https://github.com/jongsu-king/xrd-analyzer/blob/main/docs/INSTALL.md).

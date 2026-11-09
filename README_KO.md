@@ -71,9 +71,9 @@
 
 ### 다운로드 무결성 확인 (선택)
 ```bash
-shasum -a 256 XRD-Analyzer-0.1.2-macos-arm64.dmg     # macOS
-sha256sum xrd-analyzer_0.1.2_amd64.deb               # Linux
-certutil -hashfile XRD-Analyzer-0.1.2-windows-x64-setup.exe SHA256   # Windows
+shasum -a 256 XRD-Analyzer-0.1.3-macos-arm64.dmg     # macOS
+sha256sum xrd-analyzer_0.1.3_amd64.deb               # Linux
+certutil -hashfile XRD-Analyzer-0.1.3-windows-x64-setup.exe SHA256   # Windows
 ```
 출력값을 `SHA256SUMS.txt`의 해당 줄과 비교합니다. Linux에서는
 `sha256sum -c SHA256SUMS.txt --ignore-missing`으로 받은 파일을 한 번에 확인할 수 있습니다.

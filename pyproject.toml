@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xrd-analyzer"
-version = "0.1.2"
+version = "0.1.3"
 description = "Desktop and command-line analyzer for 1D θ–2θ X-ray diffraction patterns: baselines, peak fitting, d-spacing, Scherrer and Williamson–Hall, reports."
 readme = "README.md"
 requires-python = ">=3.11"
