@@ -1,35 +1,19 @@
-## XRD Analyzer 0.1.1
+## XRD Analyzer 0.1.2
 
-This is a desktop and command-line analyzer for 1D θ–2θ X-ray diffraction patterns.
-Version 0.1.1 is the first release archived on Zenodo with a DOI. The analysis is identical to
-0.1.0; this release fixes the Windows build and the macOS checksum file.
+Desktop and command-line analyzer for 1D θ–2θ X-ray diffraction patterns. **The analysis
+is identical to 0.1.1**; this release adds automatic updates and more downloads.
 
-### Downloads
-| System | File |
-|---|---|
-| Windows 10/11 x64 | `XRD-Analyzer-0.1.1-windows-x64-setup.exe` (installer) or `…-portable.zip` |
-| macOS 12+ Apple Silicon | `XRD-Analyzer-0.1.1-macos-arm64.dmg` |
-| Ubuntu/Debian x86_64 | `xrd-analyzer_0.1.1_amd64.deb` |
-| Other Linux x86_64 | `XRD-Analyzer-0.1.1-linux-x86_64.tar.gz` |
+### New
+- **Automatic updates.** An installed copy checks GitHub once a day, downloads a newer
+  release for your system, verifies it against `SHA256SUMS.txt` and installs it when you
+  close the program (or at once with *Restart now*). *Help → Automatic updates* chooses
+  between *download and install*, *only tell me* and *off*; *Help → Check for updates…* and
+  `xrd-analyzer-cli update` check on demand. Source and pip installs are never modified.
+- **Intel Macs**: `XRD-Analyzer-0.1.2-macos-x86_64.dmg`.
+- The Linux archive includes `install.sh` / `uninstall.sh` (per-user, no root).
+- One `SHA256SUMS.txt` for every file.
 
-The builds are **not code-signed**. See *First start on unsigned builds* in the README.
-Checksums are in the `.sha256` files. `build-verification-reports.zip` holds the self-test
-and GUI smoke-test reports that each installer produced on its own operating system during
-the release build.
-
-### Highlights
-- Text import (CSV/TXT/XY/DAT/TSV) that never guesses the axis (2θ vs θ) or units.
-- Baselines: SNIP, ALS, polynomial, and a peak-masked Whittaker baseline that separates
-  amorphous humps.
-- Kα2 stripping or Kα1/Kα2 doublet fitting. Pseudo-Voigt/Voigt fits with uncertainties and
-  quality flags.
-- Bragg d-spacings; Scherrer and Williamson–Hall only when their inputs are valid.
-- CSV/JSON/PNG/SVG/HTML/PDF outputs, hash-verified projects, batch statistics.
-- Korean/English interface, light/dark themes, undo/redo, background processing with
-  cancel and pause.
-- Built-in `selftest`: run `xrd-analyzer-cli selftest` after installing.
-
-### Known limitations
-Validated on synthetic ground-truth data only. Vendor binary formats (.ras/.rasx/.xrdml/.raw)
-are not supported. Export text from the instrument software instead. There is no Intel macOS
-build. See the README for the full list.
+Users of 0.1.1 install 0.1.2 once by hand (0.1.1 has no updater); later releases arrive
+automatically. `build-verification-reports.zip` holds the self-test and GUI smoke-test
+reports that each build produced on its own operating system. Full guide:
+[docs/INSTALL.md](https://github.com/jongsu-king/xrd-analyzer/blob/main/docs/INSTALL.md).

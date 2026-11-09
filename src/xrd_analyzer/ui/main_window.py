@@ -91,6 +91,12 @@ class SetRecipeCommand(QUndoCommand):
         self.win.apply_recipe(self.index, AnalysisRecipe.from_dict(self.old))
 
 
+def update_app(selfupdate):
+    """Description of this program for the automatic updater."""
+    return selfupdate.App(repo="jongsu-king/xrd-analyzer", name=APP_NAME, version=__version__,
+                          env_prefix="XRD_ANALYZER", pip_name="xrd-analyzer")
+
+
 class MainWindow(QMainWindow):
     def __init__(self, lang: str = "ko") -> None:
         super().__init__()
@@ -270,6 +276,19 @@ class MainWindow(QMainWindow):
 
         self.m_help = mb.addMenu("")
         self.m_help.addAction(self._act("act.about", self.about))
+        self.m_help.addSeparator()
+        self._setup_updates()
+
+    def _setup_updates(self) -> None:
+        """Help menu: check for updates and choose the automatic-update mode."""
+        try:
+            from .. import selfupdate
+
+            self.updater = selfupdate.Updater(update_app(selfupdate))
+            selfupdate.attach_qt(self, self.updater, self.m_help, lang=lambda: self.tr_.lang)
+        except Exception as exc:  # noqa: BLE001 - updates must never stop the program
+            self.updater = None
+            print(f"update support unavailable: {exc}")
 
     def retranslate(self) -> None:
         t = self.tr_
@@ -917,6 +936,8 @@ class MainWindow(QMainWindow):
     def set_language(self, code: str) -> None:
         self.tr_.lang = code
         self.retranslate()
+        if getattr(self, "_selfupdate", None):
+            self._selfupdate["retranslate"]()
         self._fill_summary(self.current())
 
     def _toggle_normalise(self, on: bool) -> None:

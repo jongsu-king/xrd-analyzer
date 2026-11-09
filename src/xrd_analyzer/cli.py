@@ -178,6 +178,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("gui", help="start the desktop GUI")
     ps = sub.add_parser("selftest", help="verify this installation against synthetic ground truth")
     ps.add_argument("--out", help="also write the JSON report to this file")
+    pu = sub.add_parser("update", help="check GitHub for a newer release and install it (installed copies)")
+    pu.add_argument("--check-only", action="store_true", help="only report whether a newer release exists")
     pg = sub.add_parser("gui-smoke", help="open the GUI, analyse an example, close (build check)")
     pg.add_argument("--out", help="also write the JSON report to this file")
     pg.add_argument("--offscreen", action="store_true", help="no display needed")
@@ -206,6 +208,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = run_gui_smoke(offscreen=a.offscreen)
         write_report(report, a.out)
         return 0 if report["ok"] else 1
+    if a.cmd == "update":
+        from . import selfupdate
+
+        updater = selfupdate.Updater(selfupdate.App(
+            repo="jongsu-king/xrd-analyzer", name="XRD Analyzer", version=__version__,
+            env_prefix="XRD_ANALYZER", pip_name="xrd-analyzer"))
+        return selfupdate.cli(updater, install=not a.check_only)
     if a.cmd == "gui":
         from .ui.app import main as gui_main
 

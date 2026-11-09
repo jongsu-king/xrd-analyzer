@@ -5,8 +5,17 @@ set -euo pipefail
 VERSION=$(python -c "import xrd_analyzer; print(xrd_analyzer.__version__)")
 pyinstaller --noconfirm --distpath dist --workpath build packaging/xrd-analyzer.spec
 test -x dist/XRD-Analyzer/XRD-Analyzer
-# portable archive
-tar -C dist -czf "dist/XRD-Analyzer-${VERSION}-linux-x86_64.tar.gz" XRD-Analyzer
+# portable archive: the program folder plus install.sh / uninstall.sh for a per-user
+# install (~/.local/share/xrd-analyzer, ~/.local/bin/xrd-analyzer, menu entry)
+STAGE=$(mktemp -d)/XRD-Analyzer
+cp -R dist/XRD-Analyzer "$STAGE"
+for f in install.sh uninstall.sh; do
+  sed -e "s|@ID@|xrd-analyzer|g" -e "s|@EXE@|XRD-Analyzer|g" "packaging/linux/$f" > "$STAGE/$f"
+  chmod +x "$STAGE/$f"
+done
+sed -e "s|^Exec=.*|Exec=@EXEC@ %F|" packaging/linux/xrd-analyzer.desktop > "$STAGE/xrd-analyzer.desktop"
+cp packaging/icons/xrd-analyzer-256.png "$STAGE/xrd-analyzer.png"
+tar -C "$(dirname "$STAGE")" -czf "dist/XRD-Analyzer-${VERSION}-linux-x86_64.tar.gz" XRD-Analyzer
 # .deb
 PKG=$(mktemp -d)/xrd-analyzer_${VERSION}_amd64
 mkdir -p "$PKG/DEBIAN" "$PKG/opt" "$PKG/usr/bin" "$PKG/usr/share/applications" \

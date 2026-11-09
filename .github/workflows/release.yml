@@ -14,15 +14,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-latest, kind: macos }
+          - { os: macos-latest, kind: macos }      # Apple silicon
+          - { os: macos-15-intel, kind: macos }    # Intel
           - { os: windows-latest, kind: windows }
           - { os: ubuntu-22.04, kind: linux }
     runs-on: ${{ matrix.os }}
     env:
       QT_QPA_PLATFORM: offscreen
+      XRD_ANALYZER_NO_UPDATE: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Linux system libraries
@@ -42,12 +44,12 @@ jobs:
         run: |
           set -e
           M="dist/XRD Analyzer.app/Contents/MacOS"
-          "$M/xrd-analyzer-cli" selftest --out dist/selftest-macos.json
-          "$M/XRD-Analyzer" gui-smoke --offscreen --out dist/gui-smoke-macos.json
+          "$M/xrd-analyzer-cli" selftest --out "dist/selftest-macos-$(uname -m).json"
+          "$M/XRD-Analyzer" gui-smoke --offscreen --out "dist/gui-smoke-macos-$(uname -m).json"
           MP=$(mktemp -d)
           hdiutil attach -nobrowse -readonly -mountpoint "$MP" dist/*.dmg
-          "$MP/XRD Analyzer.app/Contents/MacOS/xrd-analyzer-cli" selftest --out dist/selftest-macos-dmg.json
-          hdiutil detach "$MP"
+          "$MP/XRD Analyzer.app/Contents/MacOS/xrd-analyzer-cli" selftest --out "dist/selftest-macos-$(uname -m)-dmg.json"
+          for i in 1 2 3 4; do hdiutil detach "$MP" && break; sleep 3; done
 
       # -------------------------------------------------------------- Windows
       - name: Build app (Windows)
@@ -96,10 +98,13 @@ jobs:
           sudo apt-get install -y ./dist/xrd-analyzer_*_amd64.deb
           xrd-analyzer selftest --out dist/selftest-linux-deb.json
           sudo apt-get remove -y xrd-analyzer
+          mkdir -p /tmp/t && tar -C /tmp/t -xzf dist/XRD-Analyzer-*-linux-x86_64.tar.gz
+          HOME=/tmp/home /tmp/t/XRD-Analyzer/install.sh
+          HOME=/tmp/home /tmp/home/.local/share/xrd-analyzer/xrd-analyzer-cli selftest --out dist/selftest-linux-tar.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: xrd-analyzer-${{ matrix.kind }}
+          name: xrd-analyzer-${{ matrix.os }}
           if-no-files-found: error
           path: |
             dist/*.dmg
@@ -115,8 +120,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -125,5 +130,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p verification && mv artifacts/*.json verification/
+          python3 - <<'PY'
+          import glob, json, sys
+          bad = [f for f in glob.glob("verification/*.json") if not json.load(open(f, encoding="utf-8")).get("ok")]
+          if bad:
+              sys.exit(f"failed verification reports: {bad}")
+          PY
           (cd verification && zip -q ../artifacts/build-verification-reports.zip *.json)
-          gh release create "$GITHUB_REF_NAME" artifacts/* --title "XRD Analyzer $GITHUB_REF_NAME" --notes-file docs/RELEASE_NOTES.md
+          rm -f artifacts/*.sha256
+          python3 packaging/release_notes.py --dir artifacts --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" \
+            --name "XRD Analyzer" --notes docs/RELEASE_NOTES.md > notes.md
+          gh release create "$GITHUB_REF_NAME" artifacts/* --title "XRD Analyzer $GITHUB_REF_NAME" --notes-file notes.md

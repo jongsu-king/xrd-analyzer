@@ -1,8 +1,8 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 title: "XRD Analyzer: desktop and command-line analysis of 1D θ–2θ X-ray diffraction patterns"
-version: 0.1.1
-date-released: 2026-11-03
+version: "0.1.2"
+date-released: "2026-11-09"
 license: MIT
 type: software
 doi: 10.5281/zenodo.23912324

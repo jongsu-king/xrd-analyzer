@@ -47,13 +47,17 @@
 |---|---|---|
 | Windows 10/11 (x64) | `XRD-Analyzer-<버전>-windows-x64-setup.exe` | 설치 프로그램. 기본은 현재 사용자 설치라 관리자 권한이 필요 없습니다. 시작 메뉴 등록, 바탕화면 아이콘(선택), 명령줄 도구 PATH 등록(선택), 제거 프로그램을 포함합니다 |
 | Windows 10/11 (x64) | `XRD-Analyzer-<버전>-windows-x64-portable.zip` | 설치 없이 쓰는 휴대용 버전. 압축을 풀고 `XRD-Analyzer.exe`를 실행합니다 |
-| macOS 12 이상 (Apple Silicon) | `XRD-Analyzer-<버전>-macos-arm64.dmg` | DMG를 열고 **XRD Analyzer**를 **Applications**로 끌어다 놓습니다 |
+| macOS 11 이상 (Apple 실리콘) | `XRD-Analyzer-<버전>-macos-arm64.dmg` | DMG를 열고 **XRD Analyzer**를 **Applications**로 끌어다 놓습니다 |
+| macOS 11 이상 (Intel) | `XRD-Analyzer-<버전>-macos-x86_64.dmg` | Intel 프로세서 Mac용. 설치 방법은 같습니다 |
 | Ubuntu/Debian (x86_64) | `xrd-analyzer_<버전>_amd64.deb` | `sudo apt install ./xrd-analyzer_<버전>_amd64.deb`로 설치합니다. 메뉴 항목과 `xrd-analyzer` 명령이 추가됩니다 |
-| 기타 Linux (x86_64, glibc 2.35 이상) | `XRD-Analyzer-<버전>-linux-x86_64.tar.gz` | 압축을 풀고 `XRD-Analyzer/XRD-Analyzer`를 실행합니다 |
+| 기타 Linux (x86_64, glibc 2.35 이상) | `XRD-Analyzer-<버전>-linux-x86_64.tar.gz` | 압축을 풀고 `XRD-Analyzer/install.sh`를 실행하면 현재 사용자에게 설치됩니다(메뉴 항목, `~/.local/bin/xrd-analyzer`). 설치 없이 `XRD-Analyzer/XRD-Analyzer`를 바로 실행해도 됩니다 |
 
 릴리스에는 다음도 함께 들어 있습니다.
-- SHA-256 체크섬 파일
+- `SHA256SUMS.txt`: 모든 파일의 SHA-256 체크섬. 릴리스 노트에도 같은 값이 있고, 자동 업데이트가 이 파일로 내려받은 파일을 검증합니다
 - `build-verification-reports.zip`: 각 운영체제에서 빌드할 때 생성된 자체 점검 보고서
+
+어떤 Mac인지 확인하는 법, Windows 무인 설치, 제거 방법까지 담은 전체 안내(영문)는
+[docs/INSTALL.md](docs/INSTALL.md)에 있습니다.
 
 ### 서명되지 않은 빌드를 처음 실행할 때
 코드 서명이 없어서 처음 실행하면 운영체제가 경고를 띄웁니다.
@@ -67,11 +71,12 @@
 
 ### 다운로드 무결성 확인 (선택)
 ```bash
-shasum -a 256 XRD-Analyzer-0.1.1-macos-arm64.dmg     # macOS
-sha256sum xrd-analyzer_0.1.1_amd64.deb               # Linux
-certutil -hashfile XRD-Analyzer-0.1.1-windows-x64-setup.exe SHA256   # Windows
+shasum -a 256 XRD-Analyzer-0.1.2-macos-arm64.dmg     # macOS
+sha256sum xrd-analyzer_0.1.2_amd64.deb               # Linux
+certutil -hashfile XRD-Analyzer-0.1.2-windows-x64-setup.exe SHA256   # Windows
 ```
-출력값을 같은 이름의 `.sha256` 파일과 비교합니다.
+출력값을 `SHA256SUMS.txt`의 해당 줄과 비교합니다. Linux에서는
+`sha256sum -c SHA256SUMS.txt --ignore-missing`으로 받은 파일을 한 번에 확인할 수 있습니다.
 
 ### 설치 확인 (선택)
 모든 빌드에는 자체 점검(self-test)이 들어 있습니다. 정답을 아는 합성 패턴 3종을 분석하고,
@@ -85,6 +90,16 @@ certutil -hashfile XRD-Analyzer-0.1.1-windows-x64-setup.exe SHA256   # Windows
 
 JSON 보고서가 출력되고 마지막 줄이 `"selftest": "PASS"`면 정상입니다. 종료 코드 0은 모든 점검을
 통과했다는 뜻입니다.
+
+### 자동 업데이트
+설치한 프로그램은 스스로 최신 상태를 유지합니다. 하루 한 번, 시작하고 몇 초 뒤 GitHub에 최신
+릴리스를 묻습니다(익명 요청 1회, 보내는 정보는 프로그램 이름과 버전뿐). 새 버전이 있으면 이
+컴퓨터용 파일을 받아 `SHA256SUMS.txt`와 대조하고, 프로그램을 닫을 때 설치합니다. *지금 다시
+시작*을 고르면 바로 설치합니다. **도움말 → 자동 업데이트**에서 *자동으로 내려받아 설치*, *새 버전이
+있으면 알리기만*, *끄기*를 고를 수 있고, **도움말 → 업데이트 확인…**으로 언제든 확인할 수 있습니다.
+명령줄에서는 `xrd-analyzer-cli update`(확인만: `update --check-only`). 소스나 pip로 설치한 경우는
+바꾸지 않고 업데이트 명령만 알려 줍니다. 컴퓨터 전체에서 자동 확인을 끄려면 환경 변수
+`XRD_ANALYZER_NO_UPDATE=1`을 설정하세요.
 
 ### 소스에서 설치 (Python 3.11 이상)
 ```bash

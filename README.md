@@ -45,12 +45,16 @@ Download the file for your system from the
 |---|---|---|
 | Windows 10/11 (x64) | `XRD-Analyzer-<version>-windows-x64-setup.exe` | Installer: per-user by default (no admin rights), Start-menu entry, optional desktop icon, optional `PATH` entry for the command-line tool, uninstaller |
 | Windows 10/11 (x64) | `XRD-Analyzer-<version>-windows-x64-portable.zip` | No installation: unzip and run `XRD-Analyzer.exe` |
-| macOS 12+ (Apple Silicon) | `XRD-Analyzer-<version>-macos-arm64.dmg` | Open the DMG and drag **XRD Analyzer** to **Applications** |
+| macOS 11+ (Apple silicon) | `XRD-Analyzer-<version>-macos-arm64.dmg` | Open the DMG and drag **XRD Analyzer** to **Applications** |
+| macOS 11+ (Intel) | `XRD-Analyzer-<version>-macos-x86_64.dmg` | Same, for Macs with an Intel processor |
 | Ubuntu/Debian (x86_64) | `xrd-analyzer_<version>_amd64.deb` | `sudo apt install ./xrd-analyzer_<version>_amd64.deb`; adds a menu entry and the `xrd-analyzer` command |
-| Other Linux (x86_64, glibc ≥ 2.35) | `XRD-Analyzer-<version>-linux-x86_64.tar.gz` | Extract and run `XRD-Analyzer/XRD-Analyzer` |
+| Other Linux (x86_64, glibc ≥ 2.35) | `XRD-Analyzer-<version>-linux-x86_64.tar.gz` | Extract, then `XRD-Analyzer/install.sh` (current user: menu entry and `~/.local/bin/xrd-analyzer`), or run `XRD-Analyzer/XRD-Analyzer` in place |
 
-Each release also contains SHA-256 checksum files and `build-verification-reports.zip`
-(the self-test reports produced by every build on its own operating system).
+Each release also contains `SHA256SUMS.txt` (checksums of every file, also printed in the
+release notes and used by the automatic updater) and `build-verification-reports.zip` (the
+self-test reports produced by every build on its own operating system). The complete guide -
+which Mac you have, unattended Windows installation, uninstalling - is
+[docs/INSTALL.md](docs/INSTALL.md).
 
 ### First start on unsigned builds
 The builds are not code-signed, so the operating system warns on first start:
@@ -64,11 +68,12 @@ The builds are not code-signed, so the operating system warns on first start:
 
 ### Verify the download (optional)
 ```bash
-shasum -a 256 XRD-Analyzer-0.1.1-macos-arm64.dmg     # macOS
-sha256sum xrd-analyzer_0.1.1_amd64.deb               # Linux
-certutil -hashfile XRD-Analyzer-0.1.1-windows-x64-setup.exe SHA256   # Windows
+shasum -a 256 XRD-Analyzer-0.1.2-macos-arm64.dmg     # macOS
+sha256sum xrd-analyzer_0.1.2_amd64.deb               # Linux
+certutil -hashfile XRD-Analyzer-0.1.2-windows-x64-setup.exe SHA256   # Windows
 ```
-Compare the result with the matching `.sha256` file.
+Compare the result with the line for that file in `SHA256SUMS.txt`
+(`sha256sum -c SHA256SUMS.txt --ignore-missing` checks every downloaded file on Linux).
 
 ### Check the installation (optional)
 Every build contains a self-test that analyses three synthetic patterns with known answers
@@ -81,6 +86,18 @@ and writes every export format:
 | Linux (.deb) | `xrd-analyzer selftest` |
 
 It prints a JSON report that ends with `"selftest": "PASS"`. Exit code 0 means every check passed.
+
+### Automatic updates
+An installed copy keeps itself up to date. Once a day, a few seconds after start-up, it asks
+GitHub for the latest release (one anonymous request; only the program name and version are
+sent). A newer release is downloaded for your system, checked against `SHA256SUMS.txt`, and
+installed when you close the program - or right away if you choose *Restart now*.
+**Help → Automatic updates** switches between *download and install*, *only tell me* and
+*off*; **Help → Check for updates…** checks on demand. From a terminal:
+`xrd-analyzer-cli update` (or `update --check-only`). Copies installed from source or with pip
+are never modified; they show the command to update instead. Set `XRD_ANALYZER_NO_UPDATE=1`
+to disable the automatic check for a whole machine. Details:
+[docs/INSTALL.md](docs/INSTALL.md#automatic-updates).
 
 ### Install from source (any platform with Python 3.11+)
 ```bash

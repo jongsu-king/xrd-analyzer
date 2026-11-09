@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.2 — 2026-11-09
+- **Automatic updates** for installed copies: a daily check of the latest GitHub release,
+  download of the file for this system, SHA-256 verification against the release's
+  `SHA256SUMS.txt`, installation on exit or on *Restart now*. *Help → Automatic updates*
+  (download and install / only tell me / off), *Help → Check for updates…*, and
+  `xrd-analyzer-cli update [--check-only]`. Source and pip installs are never modified.
+- macOS disk image for **Intel** Macs (`…-macos-x86_64.dmg`) next to the Apple-silicon one.
+- The Linux `.tar.gz` now contains `install.sh`/`uninstall.sh` for a per-user install.
+- Releases carry one `SHA256SUMS.txt` instead of per-platform `.sha256` files, and the
+  release notes list every file with its size and checksum.
+- No changes to the analysis.
+
 ## 0.1.1 — 2026-11-03
 - Archived on Zenodo with a DOI (metadata in `.zenodo.json` and `CITATION.cff`).
 - Windows build: the version file is read as UTF-8.
