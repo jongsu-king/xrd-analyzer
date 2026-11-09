@@ -281,13 +281,14 @@ class MainWindow(QMainWindow):
 
     def _setup_updates(self) -> None:
         """Help menu: check for updates and choose the automatic-update mode."""
+        self.updater: object | None = None
         try:
             from .. import selfupdate
 
-            self.updater = selfupdate.Updater(update_app(selfupdate))
-            selfupdate.attach_qt(self, self.updater, self.m_help, lang=lambda: self.tr_.lang)
-        except Exception as exc:  # noqa: BLE001 - updates must never stop the program
-            self.updater = None
+            updater = selfupdate.Updater(update_app(selfupdate))
+            selfupdate.attach_qt(self, updater, self.m_help, lang=lambda: self.tr_.lang)
+            self.updater = updater
+        except Exception as exc:  # updates must never stop the program
             print(f"update support unavailable: {exc}")
 
     def retranslate(self) -> None:

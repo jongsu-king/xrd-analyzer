@@ -50,7 +50,7 @@ markers = ["gui: needs PySide6/Qt (runs offscreen)"]
 
 [tool.coverage.run]
 source = ["xrd_analyzer"]
-omit = ["*/ui/*", "*/__main__.py"]
+omit = ["*/ui/*", "*/__main__.py", "*/selfupdate.py"]
 
 [tool.coverage.report]
 show_missing = true
@@ -60,6 +60,9 @@ skip_covered = false
 line-length = 100
 target-version = "py311"
 src = ["src", "tests"]
+# selfupdate.py is a shared copy kept identical across the jongsu-king desktop
+# programs (Python 3.8+); it is checked by its own tests, not restyled here.
+extend-exclude = ["src/xrd_analyzer/selfupdate.py", "tests/test_selfupdate.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "NPY", "RUF"]
@@ -72,4 +75,8 @@ mypy_path = "src"
 ignore_missing_imports = true
 warn_unused_ignores = true
 check_untyped_defs = true
-exclude = ["src/xrd_analyzer/ui/"]
+exclude = ["src/xrd_analyzer/ui/", "src/xrd_analyzer/selfupdate.py"]
+
+[[tool.mypy.overrides]]
+module = "xrd_analyzer.selfupdate"
+ignore_errors = true
